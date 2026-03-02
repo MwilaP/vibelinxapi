@@ -10,7 +10,7 @@ interface CreateTransactionData {
   payment_method: 'mtn' | 'airtel' | 'zamtel';
   payment_phone: string;
   reference_number: string;
-  external_transaction_id: string;
+  external_transaction_id?: string | null;
   metadata: {
     booking_data?: any;
     subscription_data?: any;
@@ -109,6 +109,75 @@ class TransactionService {
       return { error: null };
     } catch (error) {
       logger.error('Unexpected error updating transaction:', error);
+      return { error };
+    }
+  }
+
+  async updateTransactionReference(
+    transactionId: string,
+    referenceNumber: string,
+    externalTransactionId?: string
+  ): Promise<{ error: any }> {
+    try {
+      const updates: any = {
+        reference_number: referenceNumber,
+        status: 'pending',
+        updated_at: new Date().toISOString(),
+      };
+
+      if (externalTransactionId) {
+        updates.external_transaction_id = externalTransactionId;
+      }
+
+      const { error } = await this.supabase
+        .from('transactions')
+        .update(updates)
+        .eq('id', transactionId);
+
+      if (error) {
+        logger.error('Error updating transaction reference:', error);
+        return { error };
+      }
+
+      logger.info('Transaction reference updated', {
+        transactionId,
+        referenceNumber,
+        externalTransactionId,
+      });
+
+      return { error: null };
+    } catch (error) {
+      logger.error('Unexpected error updating transaction reference:', error);
+      return { error };
+    }
+  }
+
+  async updateTransactionBookingId(
+    transactionId: string,
+    bookingId: string
+  ): Promise<{ error: any }> {
+    try {
+      const { error } = await this.supabase
+        .from('transactions')
+        .update({
+          booking_id: bookingId,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', transactionId);
+
+      if (error) {
+        logger.error('Error updating transaction booking_id:', error);
+        return { error };
+      }
+
+      logger.info('Transaction booking_id updated', {
+        transactionId,
+        bookingId,
+      });
+
+      return { error: null };
+    } catch (error) {
+      logger.error('Unexpected error updating transaction booking_id:', error);
       return { error };
     }
   }

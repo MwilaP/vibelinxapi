@@ -127,7 +127,10 @@ class LencopayService {
     paymentData: PaymentInitiationRequest
   ): Promise<PaymentInitiationResponse> {
     try {
-      const reference = `${this.generateTransactionId()}-${paymentData.payment_type}-${paymentData.booking_id}`;
+      // Use the reference passed from the controller (contains transaction ID)
+      // If no reference provided, generate one (backward compatibility)
+      const reference = paymentData.reference || 
+        `${this.generateTransactionId()}-${paymentData.payment_type}-${paymentData.booking_id}`;
       
       const formattedPhone = this.formatPhoneNumber(paymentData.customer_phone);
       const operator = paymentData.payment_method; // Use the operator selected by the user
@@ -137,6 +140,7 @@ class LencopayService {
         formatted: formattedPhone,
         operator: operator,
         amount: paymentData.amount,
+        reference: reference,
       });
       
       const payload = {

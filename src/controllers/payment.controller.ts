@@ -25,14 +25,6 @@ export class PaymentController {
         return;
       }
 
-      // Initiate payment with Lenco
-      const result = await lencopayService.initiatePayment(paymentData);
-
-      if (!result.success) {
-        res.status(400).json(result);
-        return;
-      }
-
       // Determine transaction type
       let transactionType: 'booking_commitment' | 'booking_balance' | 'booking_full' | 'subscription';
       if (booking_data) {
@@ -47,7 +39,7 @@ export class PaymentController {
         transactionType = 'subscription';
       }
 
-      // Create transaction record with metadata
+      // Create transaction record BEFORE initiating payment (with placeholder reference)
       const { transaction, error: txError } = await transactionService.createTransaction({
         user_id,
         amount: paymentData.amount,
@@ -55,8 +47,8 @@ export class PaymentController {
         payment_type: paymentData.payment_type,
         payment_method: paymentData.payment_method,
         payment_phone: paymentData.customer_phone,
-        reference_number: result.transaction_id,
-        external_transaction_id: result.data?.lencoReference || result.transaction_id,
+        reference_number: 'PENDING', // Will be updated with transaction ID
+        external_transaction_id: null,
         metadata: {
           booking_data: booking_data || null,
           payment_info: {
@@ -71,16 +63,68 @@ export class PaymentController {
           : `${paymentData.payment_type} payment`,
       });
 
-      if (txError) {
+      if (txError || !transaction) {
         logger.error('Failed to create transaction record', {
           error: txError,
-          reference: result.transaction_id,
         });
+        res.status(500).json({
+          success: false,
+          message: 'Failed to create transaction record',
+        });
+        return;
       }
 
-      logger.info('Payment initiated and transaction created', {
-        transactionId: transaction?.id,
-        reference: result.transaction_id,
+      // Use transaction ID as the Lenco reference
+      const lencoReference = `VBL-${transaction.id}-${paymentData.payment_type}`;
+
+      // Update transaction with its own ID as reference
+      await transactionService.updateTransactionReference(
+        transaction.id,
+        lencoReference
+      );
+
+      logger.info('Transaction created, now initiating Lenco payment', {
+        transactionId: transaction.id,
+        lencoReference,
+      });
+
+      // Now initiate payment with Lenco using transaction ID as reference
+      const result = await lencopayService.initiatePayment({
+        ...paymentData,
+        reference: lencoReference, // Use transaction-based reference
+      });
+
+      if (!result.success) {
+        // Payment initiation failed, mark transaction as failed
+        await transactionService.updateTransactionStatus(
+          transaction.id,
+          'failed',
+          'payment_initiation_failed',
+          result.message
+        );
+        
+        logger.error('Lenco payment initiation failed', {
+          transactionId: transaction.id,
+          error: result.message,
+        });
+        
+        res.status(400).json(result);
+        return;
+      }
+
+      // Update transaction with Lenco's internal ID
+      if (result.data?.lencoReference || result.data?.id) {
+        await transactionService.updateTransactionStatus(
+          transaction.id,
+          'pending',
+          result.data?.status || 'pending'
+        );
+      }
+
+      logger.info('Payment initiated successfully', {
+        transactionId: transaction.id,
+        lencoReference,
+        lencoInternalId: result.data?.lencoReference,
       });
 
       res.status(200).json({
@@ -201,6 +245,12 @@ export class PaymentController {
               bookingId: booking.id,
               transactionId: transaction.id,
             });
+
+            // Update transaction with booking_id
+            await transactionService.updateTransactionBookingId(
+              transaction.id,
+              booking.id
+            );
 
             // Notify provider of new booking
             if (transaction.payment_type === 'commitment' || transaction.payment_type === 'full') {

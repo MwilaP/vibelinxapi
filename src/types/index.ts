@@ -7,6 +7,7 @@ export interface PaymentInitiationRequest {
   customer_phone: string;
   customer_email?: string;
   customer_name?: string;
+  reference?: string;
 }
 
 export interface PaymentInitiationResponse {
