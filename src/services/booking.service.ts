@@ -39,15 +39,35 @@ class BookingService {
     }
   }
 
-  async getProviderById(providerId: string): Promise<Provider | null> {
+  async getBookingByTransactionId(transactionId: string): Promise<{ data: Booking | null; error: any }> {
+    try {
+      const { data, error } = await this.supabase
+        .from('bookings')
+        .select('*')
+        .eq('commitment_transaction_id', transactionId)
+        .single();
+
+      if (error && error.code !== 'PGRST116') {
+        console.error('Error fetching booking by transaction ID:', error);
+        return { data: null, error };
+      }
+
+      return { data: data as Booking, error: null };
+    } catch (error) {
+      console.error('Unexpected error fetching booking by transaction ID:', error);
+      return { data: null, error };
+    }
+  }
+
+  private async getProviderDetails(providerId: string): Promise<Provider | null> {
     try {
       const { data, error } = await this.supabase
         .from('profiles')
-        .select('id, phone, full_name, email')
+        .select('id, phone, display_name')
         .eq('id', providerId)
         .single();
 
-      if (error) {
+      if (error || !data) {
         console.error('Error fetching provider:', error);
         return null;
       }
@@ -55,24 +75,23 @@ class BookingService {
       return {
         id: data.id,
         phone: data.phone,
-        name: data.full_name,
-        email: data.email,
+        name: data.display_name,
       } as Provider;
     } catch (error) {
-      console.error('Unexpected error fetching provider:', error);
+      console.error('Error in getProviderDetails:', error);
       return null;
     }
   }
 
-  async getClientById(clientId: string): Promise<any> {
+  private async getClientDetails(clientId: string): Promise<any> {
     try {
       const { data, error } = await this.supabase
         .from('profiles')
-        .select('id, phone, full_name, email')
+        .select('id, phone, display_name')
         .eq('id', clientId)
         .single();
 
-      if (error) {
+      if (error || !data) {
         console.error('Error fetching client:', error);
         return null;
       }
@@ -80,11 +99,10 @@ class BookingService {
       return {
         id: data.id,
         phone: data.phone,
-        name: data.full_name,
-        email: data.email,
+        name: data.display_name,
       };
     } catch (error) {
-      console.error('Unexpected error fetching client:', error);
+      console.error('Error in getClientDetails:', error);
       return null;
     }
   }
@@ -97,13 +115,13 @@ class BookingService {
         return false;
       }
 
-      const provider = await this.getProviderById(booking.provider_id);
+      const provider = await this.getProviderDetails(booking.provider_id);
       if (!provider || !provider.phone) {
         console.error('Provider not found or has no phone:', booking.provider_id);
         return false;
       }
 
-      const client = await this.getClientById(booking.client_id);
+      const client = await this.getClientDetails(booking.client_id);
       if (!client) {
         console.error('Client not found:', booking.client_id);
         return false;
@@ -193,7 +211,7 @@ class BookingService {
       const booking = await this.getBookingById(bookingId);
       if (!booking) return;
 
-      const client = await this.getClientById(booking.client_id);
+      const client = await this.getClientDetails(booking.client_id);
       if (!client || !client.phone) return;
 
       await notificationService.sendPaymentConfirmation(
@@ -209,19 +227,38 @@ class BookingService {
 
   async createBookingWithPayment(bookingData: any): Promise<{ booking: any | null; error: any }> {
     try {
+      const paymentType = bookingData.payment_type;
+      const isCommitmentOrFull = paymentType === 'commitment' || paymentType === 'full';
+      const isFull = paymentType === 'full';
+
       const { data: booking, error } = await this.supabase
         .from('bookings')
         .insert({
-          ...bookingData,
-          commitment_paid: bookingData.payment_type === 'commitment' || bookingData.payment_type === 'full',
-          commitment_transaction_id: bookingData.payment_type === 'commitment' || bookingData.payment_type === 'full' ? bookingData.transaction_id : null,
-          commitment_paid_at: bookingData.payment_type === 'commitment' || bookingData.payment_type === 'full' ? new Date().toISOString() : null,
-          balance_paid: bookingData.payment_type === 'full',
-          balance_transaction_id: bookingData.payment_type === 'full' ? bookingData.transaction_id : null,
-          balance_paid_at: bookingData.payment_type === 'full' ? new Date().toISOString() : null,
-          full_payment_transaction_id: bookingData.payment_type === 'full' ? bookingData.transaction_id : null,
-          full_payment_at: bookingData.payment_type === 'full' ? new Date().toISOString() : null,
-          status: bookingData.payment_type === 'full' ? 'confirmed' : 'pending'
+          client_id: bookingData.client_id,
+          provider_id: bookingData.provider_id,
+          service_name: bookingData.service_name,
+          service_duration: bookingData.service_duration,
+          service_price: bookingData.service_price,
+          booking_date: bookingData.booking_date,
+          booking_time: bookingData.booking_time,
+          duration_minutes: bookingData.duration_minutes || 120,
+          location_type: bookingData.location_type,
+          location_details: bookingData.location_details || null,
+          client_notes: bookingData.client_notes || null,
+          platform_fee: bookingData.platform_fee,
+          commitment_fee: bookingData.commitment_fee,
+          balance_due: bookingData.balance_due,
+          total_amount: bookingData.total_amount,
+          payment_type: paymentType,
+          commitment_paid: isCommitmentOrFull,
+          commitment_transaction_id: isCommitmentOrFull ? bookingData.transaction_id : null,
+          commitment_paid_at: isCommitmentOrFull ? new Date().toISOString() : null,
+          balance_paid: isFull,
+          balance_transaction_id: isFull ? bookingData.transaction_id : null,
+          balance_paid_at: isFull ? new Date().toISOString() : null,
+          full_payment_transaction_id: isFull ? bookingData.transaction_id : null,
+          full_payment_at: isFull ? new Date().toISOString() : null,
+          status: isFull ? 'confirmed' : 'pending'
         })
         .select()
         .single();

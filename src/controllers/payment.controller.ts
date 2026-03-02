@@ -202,13 +202,6 @@ export class PaymentController {
               transactionId: transaction.id,
             });
 
-            // Update transaction with booking_id
-            await transactionService.updateTransactionStatus(
-              transaction.id,
-              'completed',
-              collectionData.status
-            );
-
             // Notify provider of new booking
             if (transaction.payment_type === 'commitment' || transaction.payment_type === 'full') {
               await bookingService.notifyProviderOfNewBooking(booking.id);
@@ -227,6 +220,13 @@ export class PaymentController {
           event: 'collection.successful',
           transactionId: transaction.id,
           transactionType: transaction.transaction_type,
+        });
+      } else if (webhookEvent.event === 'collection.settled' || 
+                 webhookEvent.event === 'transaction.credit') {
+        // Log but don't process these events - only collection.successful creates bookings
+        logger.info('Received webhook event (not processing)', {
+          event: webhookEvent.event,
+          reference: webhookEvent.data?.reference,
         });
       } else if (webhookEvent.event === 'collection.failed') {
         const collectionData = webhookEvent.data;
