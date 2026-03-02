@@ -298,6 +298,7 @@ export class PaymentController {
         const collectionData = webhookEvent.data;
         
         logger.info('Processing successful collection', {
+          event: webhookEvent.event,
           reference: collectionData.reference,
           amount: collectionData.amount,
         });
@@ -322,6 +323,11 @@ export class PaymentController {
           'completed',
           collectionData.status
         );
+
+        logger.info('Transaction status updated to completed', {
+          transactionId: transaction.id,
+          event: webhookEvent.event,
+        });
 
         // Check if this is a booking transaction
         if (transaction.metadata?.booking_data && 
@@ -368,7 +374,7 @@ export class PaymentController {
         }
 
         logger.info('Webhook processed successfully', {
-          event: 'collection.successful',
+          event: webhookEvent.event,
           transactionId: transaction.id,
           transactionType: transaction.transaction_type,
         });

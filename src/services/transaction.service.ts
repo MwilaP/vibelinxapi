@@ -81,6 +81,12 @@ class TransactionService {
     errorMessage?: string
   ): Promise<{ error: any }> {
     try {
+      logger.info('Attempting to update transaction status', {
+        transactionId,
+        newStatus: status,
+        externalStatus,
+      });
+
       const updates: any = {
         status,
         external_status: externalStatus,
@@ -91,24 +97,37 @@ class TransactionService {
         updates.error_message = errorMessage;
       }
 
-      const { error } = await this.supabase
+      const { data, error } = await this.supabase
         .from('transactions')
         .update(updates)
-        .eq('id', transactionId);
+        .eq('id', transactionId)
+        .select();
 
       if (error) {
-        logger.error('Error updating transaction status:', error);
+        logger.error('Error updating transaction status', {
+          transactionId,
+          status,
+          error: error,
+          errorMessage: error.message,
+          errorDetails: error.details,
+          errorHint: error.hint,
+        });
         return { error };
       }
 
-      logger.info('Transaction status updated', {
+      logger.info('Transaction status updated successfully', {
         transactionId,
         status,
+        updatedData: data,
+        rowsAffected: data?.length || 0,
       });
 
       return { error: null };
     } catch (error) {
-      logger.error('Unexpected error updating transaction:', error);
+      logger.error('Unexpected error updating transaction', {
+        transactionId,
+        error: error,
+      });
       return { error };
     }
   }
