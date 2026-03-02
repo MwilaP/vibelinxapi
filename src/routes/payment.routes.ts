@@ -12,6 +12,10 @@ router.get('/verify/:transaction_id', validatePaymentVerification, (req: Request
   paymentController.verifyPayment(req, res)
 );
 
+router.get('/status/:transaction_id', (req: Request, res: Response) => 
+  paymentController.getTransactionStatus(req, res)
+);
+
 router.post('/callback', (req: Request, res: Response) => 
   paymentController.handleCallback(req, res)
 );

@@ -153,14 +153,17 @@ class LencopayService {
 
       const response = await this.client.post('/collections/mobile-money', payload);
 
-      logger.info('Mobile money payment initiated', {
+      logger.info('Lenco API Response', {
         reference,
         amount: paymentData.amount,
-        status: response.data.data?.status,
+        responseStatus: response.data.status,
+        responseData: response.data.data,
+        fullResponse: JSON.stringify(response.data),
       });
 
-      if (response.data.status) {
-        const collectionData = response.data.data;
+      // Check if response has data (Lenco returns status: true/false)
+      if (response.data.status === true || response.data.data) {
+        const collectionData = response.data.data || {};
         
         return {
           success: true,
@@ -169,6 +172,8 @@ class LencopayService {
             ? 'Payment initiated. Please authorize on your mobile phone.'
             : collectionData.status === 'otp-required'
             ? 'OTP sent to your phone. Please complete authorization.'
+            : collectionData.status === 'pending'
+            ? 'Payment initiated. Waiting for confirmation.'
             : 'Payment initiated successfully',
           data: {
             ...collectionData,
@@ -178,6 +183,13 @@ class LencopayService {
           },
         };
       } else {
+        logger.warn('Lenco payment initiation returned non-success status', {
+          reference,
+          responseStatus: response.data.status,
+          message: response.data.message,
+          fullResponse: JSON.stringify(response.data),
+        });
+        
         return {
           success: false,
           transaction_id: reference,

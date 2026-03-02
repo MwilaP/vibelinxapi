@@ -105,10 +105,20 @@ export class PaymentController {
         
         logger.error('Lenco payment initiation failed', {
           transactionId: transaction.id,
+          lencoReference,
           error: result.message,
+          resultData: result.data,
         });
         
-        res.status(400).json(result);
+        // Still return transaction ID so frontend can poll for status
+        res.status(400).json({
+          ...result,
+          transaction_id: transaction.id,
+          data: {
+            ...result.data,
+            transaction_id: transaction.id,
+          }
+        });
         return;
       }
 
@@ -125,12 +135,21 @@ export class PaymentController {
         transactionId: transaction.id,
         lencoReference,
         lencoInternalId: result.data?.lencoReference,
+        lencoStatus: result.data?.status,
       });
 
       res.status(200).json({
-        ...result,
-        transaction_id: transaction?.id || result.transaction_id,
-        reference: result.transaction_id,
+        success: true,
+        message: result.message,
+        transaction_id: transaction.id,
+        data: {
+          ...result.data,
+          transaction_id: transaction.id,
+          reference: lencoReference,
+          amount: paymentData.amount,
+          currency: paymentData.currency,
+          status: result.data?.status || 'pending',
+        }
       });
     } catch (error: any) {
       logger.error('Payment initiation error', {
@@ -158,11 +177,93 @@ export class PaymentController {
         return;
       }
 
-      const result = await lencopayService.verifyPayment(transaction_id);
+      // Get transaction from database to get the reference
+      const { transaction, error: txError } = await transactionService.getTransactionById(transaction_id);
+
+      if (txError || !transaction) {
+        logger.error('Transaction not found for verification', {
+          transactionId: transaction_id,
+          error: txError,
+        });
+        res.status(404).json({
+          success: false,
+          message: 'Transaction not found',
+        });
+        return;
+      }
+
+      // Verify payment using the Lenco reference
+      const result = await lencopayService.verifyPayment(transaction.reference_number);
 
       res.status(result.success ? 200 : 400).json(result);
     } catch (error: any) {
       logger.error('Payment verification error', {
+        error: error.message,
+        transactionId: req.params.transaction_id,
+      });
+      res.status(500).json({
+        success: false,
+        message: 'Internal server error',
+        error: error.message,
+      });
+    }
+  }
+
+  async getTransactionStatus(req: Request, res: Response): Promise<void> {
+    try {
+      const { transaction_id } = req.params;
+
+      logger.info('Getting transaction status', { transactionId: transaction_id });
+
+      if (!transaction_id) {
+        res.status(400).json({
+          success: false,
+          message: 'Transaction ID is required',
+        });
+        return;
+      }
+
+      // Get transaction from database
+      const { transaction, error: txError } = await transactionService.getTransactionById(transaction_id);
+
+      if (txError || !transaction) {
+        logger.error('Transaction not found', {
+          transactionId: transaction_id,
+          error: txError,
+        });
+        res.status(404).json({
+          success: false,
+          message: 'Transaction not found',
+        });
+        return;
+      }
+
+      // Verify payment status with Lenco
+      const paymentVerification = await lencopayService.verifyPayment(transaction.reference_number);
+
+      // Build response with transaction and booking info
+      const response: any = {
+        success: true,
+        message: 'Transaction status retrieved',
+        data: {
+          transaction_id: transaction.id,
+          reference: transaction.reference_number,
+          status: transaction.status,
+          payment_status: paymentVerification.status,
+          amount: transaction.amount,
+          currency: 'ZMW',
+          transaction_type: transaction.transaction_type,
+          payment_type: transaction.payment_type,
+          booking_id: transaction.booking_id,
+          has_booking: !!transaction.booking_id,
+          created_at: transaction.created_at,
+          updated_at: transaction.updated_at,
+        },
+      };
+
+      res.status(200).json(response);
+    } catch (error: any) {
+      logger.error('Get transaction status error', {
         error: error.message,
         transactionId: req.params.transaction_id,
       });
