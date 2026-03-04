@@ -15,6 +15,18 @@ router.post('/custom-notification', (req, res) =>
   bookingController.sendCustomNotification(req, res)
 );
 
+router.post('/accept', (req, res) => 
+  bookingController.acceptBooking(req, res)
+);
+
+router.post('/complete', (req, res) => 
+  bookingController.completeBooking(req, res)
+);
+
+router.post('/decline', (req, res) => 
+  bookingController.declineBooking(req, res)
+);
+
 router.get('/:booking_id', (req, res) => 
   bookingController.getBooking(req, res)
 );

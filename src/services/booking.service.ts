@@ -231,6 +231,9 @@ class BookingService {
       const isCommitmentOrFull = paymentType === 'commitment' || paymentType === 'full';
       const isFull = paymentType === 'full';
 
+      // Ensure transaction_id is a valid UUID string
+      const transactionId = bookingData.transaction_id;
+
       const { data: booking, error } = await this.supabase
         .from('bookings')
         .insert({
@@ -251,12 +254,12 @@ class BookingService {
           total_amount: bookingData.total_amount,
           payment_type: paymentType,
           commitment_paid: isCommitmentOrFull,
-          commitment_transaction_id: isCommitmentOrFull ? bookingData.transaction_id : null,
+          commitment_transaction_id: isCommitmentOrFull ? transactionId : null,
           commitment_paid_at: isCommitmentOrFull ? new Date().toISOString() : null,
           balance_paid: isFull,
-          balance_transaction_id: isFull ? bookingData.transaction_id : null,
+          balance_transaction_id: isFull ? transactionId : null,
           balance_paid_at: isFull ? new Date().toISOString() : null,
-          full_payment_transaction_id: isFull ? bookingData.transaction_id : null,
+          full_payment_transaction_id: isFull ? transactionId : null,
           full_payment_at: isFull ? new Date().toISOString() : null,
           status: isFull ? 'confirmed' : 'pending'
         })
@@ -272,6 +275,212 @@ class BookingService {
     } catch (error) {
       console.error('Unexpected error creating booking with payment:', error);
       return { booking: null, error };
+    }
+  }
+
+  async acceptBooking(bookingId: string, providerId: string): Promise<{ success: boolean; error: any }> {
+    try {
+      console.log('\n🔵 BookingService.acceptBooking called');
+      console.log('  bookingId:', bookingId);
+      console.log('  providerId:', providerId);
+
+      const booking = await this.getBookingById(bookingId);
+      if (!booking) {
+        console.log('  ❌ Booking not found');
+        return { success: false, error: new Error('Booking not found') };
+      }
+      console.log('  ✅ Booking found:', booking.id, 'status:', booking.status);
+
+      if (booking.provider_id !== providerId) {
+        console.log('  ❌ Unauthorized - provider mismatch');
+        return { success: false, error: new Error('Unauthorized') };
+      }
+
+      if (booking.status !== 'pending') {
+        console.log('  ❌ Invalid status:', booking.status);
+        return { success: false, error: new Error('Booking cannot be accepted in current status') };
+      }
+
+      console.log('  📝 Updating booking status to confirmed...');
+      const { error } = await this.supabase
+        .from('bookings')
+        .update({ status: 'confirmed', confirmed_at: new Date().toISOString() })
+        .eq('id', bookingId);
+
+      if (error) {
+        console.error('  ❌ Error updating booking:', error);
+        return { success: false, error };
+      }
+      console.log('  ✅ Booking status updated');
+
+      console.log('  📞 Fetching client and provider details...');
+      const client = await this.getClientDetails(booking.client_id);
+      const provider = await this.getProviderDetails(booking.provider_id);
+      console.log('  Client phone:', client?.phone || 'N/A');
+      console.log('  Provider phone:', provider?.phone || 'N/A');
+
+      if (client && client.phone) {
+        console.log('  📱 Sending SMS to client...');
+        await notificationService.sendBookingStatusUpdate(
+          client.phone,
+          bookingId,
+          'confirmed',
+          `${provider?.name || 'Your provider'} has accepted your booking for ${booking.service_name} on ${booking.booking_date} at ${booking.booking_time}.`
+        );
+      }
+
+      if (provider && provider.phone) {
+        console.log('  📱 Sending SMS to provider...');
+        await notificationService.sendCustomMessage(
+          provider.phone,
+          `You have confirmed booking ${bookingId} for ${booking.service_name} on ${booking.booking_date} at ${booking.booking_time}. Client: ${client?.name || 'Client'}`
+        );
+      }
+
+      console.log('  ✅ Accept booking completed successfully');
+      return { success: true, error: null };
+    } catch (error) {
+      console.error('  ❌ Unexpected error accepting booking:', error);
+      return { success: false, error };
+    }
+  }
+
+  async completeBooking(bookingId: string, providerId: string): Promise<{ success: boolean; error: any }> {
+    try {
+      console.log('\n🔵 BookingService.completeBooking called');
+      console.log('  bookingId:', bookingId);
+      console.log('  providerId:', providerId);
+
+      const booking = await this.getBookingById(bookingId);
+      if (!booking) {
+        console.log('  ❌ Booking not found');
+        return { success: false, error: new Error('Booking not found') };
+      }
+      console.log('  ✅ Booking found:', booking.id, 'status:', booking.status);
+
+      if (booking.provider_id !== providerId) {
+        console.log('  ❌ Unauthorized - provider mismatch');
+        return { success: false, error: new Error('Unauthorized') };
+      }
+
+      if (!['confirmed', 'in_progress'].includes(booking.status)) {
+        console.log('  ❌ Invalid status:', booking.status);
+        return { success: false, error: new Error('Booking cannot be completed in current status') };
+      }
+
+      console.log('  📝 Updating booking status to completed...');
+      const { error } = await this.supabase
+        .from('bookings')
+        .update({ status: 'completed', completed_at: new Date().toISOString() })
+        .eq('id', bookingId);
+
+      if (error) {
+        console.error('  ❌ Error updating booking:', error);
+        return { success: false, error };
+      }
+      console.log('  ✅ Booking status updated - escrow release trigger should fire');
+
+      console.log('  📞 Fetching client and provider details...');
+      const client = await this.getClientDetails(booking.client_id);
+      const provider = await this.getProviderDetails(booking.provider_id);
+      console.log('  Client phone:', client?.phone || 'N/A');
+      console.log('  Provider phone:', provider?.phone || 'N/A');
+
+      if (client && client.phone) {
+        console.log('  📱 Sending SMS to client...');
+        await notificationService.sendBookingStatusUpdate(
+          client.phone,
+          bookingId,
+          'completed',
+          `Your booking for ${booking.service_name} has been completed. Thank you for using VibeLinx!`
+        );
+      }
+
+      if (provider && provider.phone) {
+        console.log('  📱 Sending SMS to provider...');
+        await notificationService.sendCustomMessage(
+          provider.phone,
+          `Booking ${bookingId} completed! Your payment of ZMW ${booking.total_amount.toFixed(2)} will be released to your wallet.`
+        );
+      }
+
+      console.log('  ✅ Complete booking finished successfully');
+      return { success: true, error: null };
+    } catch (error) {
+      console.error('  ❌ Unexpected error completing booking:', error);
+      return { success: false, error };
+    }
+  }
+
+  async declineBooking(bookingId: string, providerId: string, reason?: string): Promise<{ success: boolean; error: any }> {
+    try {
+      console.log('\n🔵 BookingService.declineBooking called');
+      console.log('  bookingId:', bookingId);
+      console.log('  providerId:', providerId);
+      console.log('  reason:', reason || 'N/A');
+
+      const booking = await this.getBookingById(bookingId);
+      if (!booking) {
+        console.log('  ❌ Booking not found');
+        return { success: false, error: new Error('Booking not found') };
+      }
+      console.log('  ✅ Booking found:', booking.id, 'status:', booking.status);
+
+      if (booking.provider_id !== providerId) {
+        console.log('  ❌ Unauthorized - provider mismatch');
+        return { success: false, error: new Error('Unauthorized') };
+      }
+
+      if (booking.status !== 'pending') {
+        console.log('  ❌ Invalid status:', booking.status);
+        return { success: false, error: new Error('Booking cannot be declined in current status') };
+      }
+
+      console.log('  📝 Updating booking status to declined...');
+      const { error } = await this.supabase
+        .from('bookings')
+        .update({ 
+          status: 'declined', 
+          declined_at: new Date().toISOString(),
+          cancellation_reason: reason || 'Provider declined'
+        })
+        .eq('id', bookingId);
+
+      if (error) {
+        console.error('  ❌ Error updating booking:', error);
+        return { success: false, error };
+      }
+      console.log('  ✅ Booking status updated - refund trigger should fire');
+
+      console.log('  📞 Fetching client and provider details...');
+      const client = await this.getClientDetails(booking.client_id);
+      const provider = await this.getProviderDetails(booking.provider_id);
+      console.log('  Client phone:', client?.phone || 'N/A');
+      console.log('  Provider phone:', provider?.phone || 'N/A');
+
+      if (client && client.phone) {
+        console.log('  📱 Sending SMS to client...');
+        await notificationService.sendBookingStatusUpdate(
+          client.phone,
+          bookingId,
+          'declined',
+          `Your booking for ${booking.service_name} has been declined by the provider. ${reason ? 'Reason: ' + reason : ''} Your payment will be refunded.`
+        );
+      }
+
+      if (provider && provider.phone) {
+        console.log('  📱 Sending SMS to provider...');
+        await notificationService.sendCustomMessage(
+          provider.phone,
+          `You have declined booking ${bookingId}. The client will be notified and refunded.`
+        );
+      }
+
+      console.log('  ✅ Decline booking finished successfully');
+      return { success: true, error: null };
+    } catch (error) {
+      console.error('  ❌ Unexpected error declining booking:', error);
+      return { success: false, error };
     }
   }
 }

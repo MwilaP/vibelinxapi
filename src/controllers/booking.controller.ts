@@ -123,6 +123,138 @@ export class BookingController {
       });
     }
   }
+
+  async acceptBooking(req: Request, res: Response): Promise<void> {
+    try {
+      console.log('\n=== ACCEPT BOOKING REQUEST ===');
+      console.log('Request body:', JSON.stringify(req.body, null, 2));
+      
+      const { booking_id, provider_id } = req.body;
+
+      if (!booking_id || !provider_id) {
+        console.log('❌ Missing required fields');
+        res.status(400).json({
+          success: false,
+          message: 'Booking ID and Provider ID are required',
+        });
+        return;
+      }
+
+      console.log('📞 Calling bookingService.acceptBooking...');
+      const result = await bookingService.acceptBooking(booking_id, provider_id);
+      console.log('Result:', JSON.stringify(result, null, 2));
+
+      if (!result.success) {
+        console.log('❌ Accept booking failed:', result.error?.message);
+        res.status(400).json({
+          success: false,
+          message: result.error?.message || 'Failed to accept booking',
+        });
+        return;
+      }
+
+      console.log('✅ Booking accepted successfully');
+      res.status(200).json({
+        success: true,
+        message: 'Booking accepted successfully. Client has been notified.',
+      });
+    } catch (error: any) {
+      console.error('❌ Accept booking error:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Internal server error',
+        error: error.message,
+      });
+    }
+  }
+
+  async completeBooking(req: Request, res: Response): Promise<void> {
+    try {
+      console.log('\n=== COMPLETE BOOKING REQUEST ===');
+      console.log('Request body:', JSON.stringify(req.body, null, 2));
+      
+      const { booking_id, provider_id } = req.body;
+
+      if (!booking_id || !provider_id) {
+        console.log('❌ Missing required fields');
+        res.status(400).json({
+          success: false,
+          message: 'Booking ID and Provider ID are required',
+        });
+        return;
+      }
+
+      console.log('📞 Calling bookingService.completeBooking...');
+      const result = await bookingService.completeBooking(booking_id, provider_id);
+      console.log('Result:', JSON.stringify(result, null, 2));
+
+      if (!result.success) {
+        console.log('❌ Complete booking failed:', result.error?.message);
+        res.status(400).json({
+          success: false,
+          message: result.error?.message || 'Failed to complete booking',
+        });
+        return;
+      }
+
+      console.log('✅ Booking completed successfully');
+      res.status(200).json({
+        success: true,
+        message: 'Booking completed successfully. Escrow will be released to your wallet.',
+      });
+    } catch (error: any) {
+      console.error('❌ Complete booking error:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Internal server error',
+        error: error.message,
+      });
+    }
+  }
+
+  async declineBooking(req: Request, res: Response): Promise<void> {
+    try {
+      console.log('\n=== DECLINE BOOKING REQUEST ===');
+      console.log('Request body:', JSON.stringify(req.body, null, 2));
+      
+      const { booking_id, provider_id, reason } = req.body;
+
+      if (!booking_id || !provider_id) {
+        console.log('❌ Missing required fields');
+        res.status(400).json({
+          success: false,
+          message: 'Booking ID and Provider ID are required',
+        });
+        return;
+      }
+
+      console.log('📞 Calling bookingService.declineBooking...');
+      const result = await bookingService.declineBooking(booking_id, provider_id, reason);
+      console.log('Result:', JSON.stringify(result, null, 2));
+
+      if (!result.success) {
+        console.log('❌ Decline booking failed:', result.error?.message);
+        res.status(400).json({
+          success: false,
+          message: result.error?.message || 'Failed to decline booking',
+        });
+        return;
+      }
+
+      console.log('✅ Booking declined successfully');
+      res.status(200).json({
+        success: true,
+        message: 'Booking declined. Client has been notified and will be refunded.',
+      });
+    } catch (error: any) {
+      console.error('❌ Decline booking error:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Internal server error',
+        error: error.message,
+      });
+    }
+  }
 }
 
 export const bookingController = new BookingController();
