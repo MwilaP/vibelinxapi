@@ -2,6 +2,9 @@ import { createClient } from '@supabase/supabase-js';
 import { config } from '../config';
 import { Booking, Provider, BookingNotification } from '../types';
 import { notificationService } from './notification.service';
+import { walletService } from './wallet.service';
+import { escrowService } from './escrow.service';
+import { logger } from '../utils/logger';
 
 class BookingService {
   private supabase;
@@ -378,7 +381,17 @@ class BookingService {
         console.error('  ❌ Error updating booking:', error);
         return { success: false, error };
       }
-      console.log('  ✅ Booking status updated - escrow release trigger should fire');
+      console.log('  ✅ Booking status updated');
+
+      if (booking.payment_type === 'wallet') {
+        console.log('  💰 Releasing escrow to provider...');
+        const escrowResult = await this.releaseEscrowForBooking(bookingId);
+        if (!escrowResult.success) {
+          console.error('  ⚠️ Failed to release escrow:', escrowResult.error);
+        } else {
+          console.log('  ✅ Escrow released to provider wallet');
+        }
+      }
 
       console.log('  📞 Fetching client and provider details...');
       const client = await this.getClientDetails(booking.client_id);
@@ -450,7 +463,20 @@ class BookingService {
         console.error('  ❌ Error updating booking:', error);
         return { success: false, error };
       }
-      console.log('  ✅ Booking status updated - refund trigger should fire');
+      console.log('  ✅ Booking status updated');
+
+      if (booking.payment_type === 'wallet') {
+        console.log('  💰 Refunding escrow to client...');
+        const escrowResult = await this.refundEscrowForBooking(
+          bookingId, 
+          reason || 'Provider declined booking'
+        );
+        if (!escrowResult.success) {
+          console.error('  ⚠️ Failed to refund escrow:', escrowResult.error);
+        } else {
+          console.log('  ✅ Escrow refunded to client wallet');
+        }
+      }
 
       console.log('  📞 Fetching client and provider details...');
       const client = await this.getClientDetails(booking.client_id);
@@ -480,6 +506,176 @@ class BookingService {
       return { success: true, error: null };
     } catch (error) {
       console.error('  ❌ Unexpected error declining booking:', error);
+      return { success: false, error };
+    }
+  }
+
+  async createBookingWithWallet(bookingData: any): Promise<{ booking: any | null; error: any }> {
+    try {
+      logger.info('Creating booking with wallet', {
+        clientId: bookingData.client_id,
+        providerId: bookingData.provider_id,
+        commitmentFee: bookingData.commitment_fee,
+      });
+
+      const { wallet: clientWallet, error: clientWalletError } = await walletService.getWalletByUserId(
+        bookingData.client_id,
+        'client'
+      );
+
+      if (clientWalletError || !clientWallet) {
+        logger.error('Client wallet not found', { clientId: bookingData.client_id });
+        return { booking: null, error: clientWalletError || new Error('Client wallet not found') };
+      }
+
+      const { wallet: providerWallet, error: providerWalletError } = await walletService.getWalletByUserId(
+        bookingData.provider_id,
+        'provider'
+      );
+
+      if (providerWalletError || !providerWallet) {
+        logger.error('Provider wallet not found', { providerId: bookingData.provider_id });
+        return { booking: null, error: providerWalletError || new Error('Provider wallet not found') };
+      }
+
+      const availableBalance = parseFloat(clientWallet.available_balance);
+      const commitmentFee = parseFloat(bookingData.commitment_fee);
+
+      if (availableBalance < commitmentFee) {
+        logger.warn('Insufficient wallet balance', {
+          required: commitmentFee,
+          available: availableBalance,
+        });
+        return { 
+          booking: null, 
+          error: { 
+            code: 'INSUFFICIENT_BALANCE',
+            message: 'Insufficient wallet balance',
+            required: commitmentFee,
+            available: availableBalance,
+          } 
+        };
+      }
+
+      const { data: booking, error: bookingError } = await this.supabase
+        .from('bookings')
+        .insert({
+          client_id: bookingData.client_id,
+          provider_id: bookingData.provider_id,
+          service_name: bookingData.service_name,
+          service_duration: bookingData.service_duration,
+          service_price: bookingData.service_price,
+          booking_date: bookingData.booking_date,
+          booking_time: bookingData.booking_time,
+          duration_minutes: bookingData.duration_minutes || 120,
+          location_type: bookingData.location_type,
+          location_details: bookingData.location_details || null,
+          client_notes: bookingData.client_notes || null,
+          platform_fee: bookingData.platform_fee,
+          commitment_fee: commitmentFee,
+          balance_due: bookingData.balance_due,
+          total_amount: bookingData.total_amount,
+          payment_type: 'wallet',
+          commitment_paid: true,
+          commitment_paid_at: new Date().toISOString(),
+          status: 'pending'
+        })
+        .select()
+        .single();
+
+      if (bookingError) {
+        logger.error('Error creating booking:', bookingError);
+        return { booking: null, error: bookingError };
+      }
+
+      const { escrow, error: escrowError } = await escrowService.createEscrow({
+        booking_id: booking.id,
+        client_wallet_id: clientWallet.id,
+        provider_wallet_id: providerWallet.id,
+        amount: commitmentFee,
+        metadata: {
+          service_name: bookingData.service_name,
+          booking_date: bookingData.booking_date,
+          booking_time: bookingData.booking_time,
+        },
+      });
+
+      if (escrowError) {
+        logger.error('Error creating escrow, rolling back booking', { error: escrowError });
+        await this.supabase
+          .from('bookings')
+          .delete()
+          .eq('id', booking.id);
+        return { booking: null, error: escrowError };
+      }
+
+      logger.info('Booking created with wallet and escrow', {
+        bookingId: booking.id,
+        escrowId: escrow.id,
+        amount: commitmentFee,
+      });
+
+      return { booking, error: null };
+    } catch (error) {
+      logger.error('Unexpected error creating booking with wallet:', error);
+      return { booking: null, error };
+    }
+  }
+
+  async releaseEscrowForBooking(bookingId: string): Promise<{ success: boolean; error: any }> {
+    try {
+      logger.info('Releasing escrow for booking', { bookingId });
+
+      const { escrow, error: escrowFetchError } = await escrowService.getEscrowByBookingId(bookingId);
+
+      if (escrowFetchError || !escrow) {
+        logger.error('Escrow not found for booking', { bookingId });
+        return { success: false, error: escrowFetchError || new Error('Escrow not found') };
+      }
+
+      const releaseResult = await escrowService.releaseEscrow({
+        escrow_id: escrow.id,
+        reason: 'Service completed successfully',
+      });
+
+      if (!releaseResult.success) {
+        logger.error('Failed to release escrow', { error: releaseResult.error });
+        return releaseResult;
+      }
+
+      logger.info('Escrow released successfully', { bookingId, escrowId: escrow.id });
+      return { success: true, error: null };
+    } catch (error) {
+      logger.error('Unexpected error releasing escrow:', error);
+      return { success: false, error };
+    }
+  }
+
+  async refundEscrowForBooking(bookingId: string, reason: string): Promise<{ success: boolean; error: any }> {
+    try {
+      logger.info('Refunding escrow for booking', { bookingId, reason });
+
+      const { escrow, error: escrowFetchError } = await escrowService.getEscrowByBookingId(bookingId);
+
+      if (escrowFetchError || !escrow) {
+        logger.error('Escrow not found for booking', { bookingId });
+        return { success: false, error: escrowFetchError || new Error('Escrow not found') };
+      }
+
+      const refundResult = await escrowService.refundEscrow({
+        escrow_id: escrow.id,
+        reason: reason,
+      });
+
+      if (!refundResult.success) {
+        logger.error('Failed to refund escrow', { error: refundResult.error });
+        return refundResult;
+      }
+
+      logger.info('Escrow refunded successfully', { bookingId, escrowId: escrow.id });
+      return { success: true, error: null };
+    } catch (error) {
+      logger.error('Unexpected error refunding escrow:', error);
       return { success: false, error };
     }
   }

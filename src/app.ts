@@ -5,6 +5,8 @@ import morgan from 'morgan';
 import { config } from './config';
 import paymentRoutes from './routes/payment.routes';
 import bookingRoutes from './routes/booking.routes';
+import walletRoutes from './routes/wallet.routes';
+import adminRoutes from './routes/admin.routes';
 import testRoutes from './routes/test.routes';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler';
 
@@ -29,6 +31,8 @@ app.get('/health', (req, res) => {
 
 app.use('/api/payments', paymentRoutes);
 app.use('/api/bookings', bookingRoutes);
+app.use('/api/wallet', walletRoutes);
+app.use('/api/admin', adminRoutes);
 app.use('/api/test', testRoutes);
 
 app.use(notFoundHandler);

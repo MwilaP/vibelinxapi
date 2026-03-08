@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import { lencopayService } from '../services/lencopay.service';
 import { bookingService } from '../services/booking.service';
 import { transactionService } from '../services/transaction.service';
+import { walletService } from '../services/wallet.service';
 import { PaymentInitiationRequest, PaymentCallbackData } from '../types';
 import { logger } from '../utils/logger';
 
@@ -329,8 +330,41 @@ export class PaymentController {
           event: webhookEvent.event,
         });
 
+        // Check if this is a wallet deposit transaction
+        if (transaction.transaction_type === 'wallet_topup' && transaction.metadata?.wallet_id) {
+          logger.info('Processing wallet deposit', {
+            transactionId: transaction.id,
+            walletId: transaction.metadata.wallet_id,
+            amount: collectionData.amount,
+          });
+
+          const creditResult = await walletService.creditWallet({
+            wallet_id: transaction.metadata.wallet_id,
+            amount: parseFloat(collectionData.amount),
+            transaction_id: transaction.id,
+            description: 'Wallet deposit via mobile money',
+            metadata: {
+              payment_method: transaction.payment_method,
+              external_transaction_id: collectionData.lencoReference,
+            },
+          });
+
+          if (creditResult.error) {
+            logger.error('Failed to credit wallet', {
+              transactionId: transaction.id,
+              walletId: transaction.metadata.wallet_id,
+              error: creditResult.error,
+            });
+          } else {
+            logger.info('Wallet credited successfully', {
+              transactionId: transaction.id,
+              walletId: transaction.metadata.wallet_id,
+              amount: collectionData.amount,
+            });
+          }
+        }
         // Check if this is a booking transaction
-        if (transaction.metadata?.booking_data && 
+        else if (transaction.metadata?.booking_data && 
             ['booking_commitment', 'booking_balance', 'booking_full'].includes(transaction.transaction_type)) {
           
           const bookingData = transaction.metadata.booking_data;

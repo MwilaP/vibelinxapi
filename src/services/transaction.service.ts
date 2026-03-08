@@ -15,6 +15,8 @@ interface CreateTransactionData {
     booking_data?: any;
     subscription_data?: any;
     payment_info?: any;
+    wallet_id?: string;
+    [key: string]: any;
   };
   description?: string;
 }

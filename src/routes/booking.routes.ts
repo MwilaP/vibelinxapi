@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { bookingController } from '../controllers/booking.controller';
 
-const router = Router();
+const router: Router = Router();
 
 router.post('/notify', (req, res) => 
   bookingController.notifyProvider(req, res)
@@ -29,6 +29,10 @@ router.post('/decline', (req, res) =>
 
 router.get('/:booking_id', (req, res) => 
   bookingController.getBooking(req, res)
+);
+
+router.post('/create-with-wallet', (req, res) => 
+  bookingController.createBookingWithWallet(req, res)
 );
 
 export default router;

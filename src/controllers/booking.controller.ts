@@ -255,6 +255,68 @@ export class BookingController {
       });
     }
   }
+
+  async createBookingWithWallet(req: Request, res: Response): Promise<void> {
+    try {
+      console.log('\n=== CREATE BOOKING WITH WALLET ===');
+      console.log('Request body:', JSON.stringify(req.body, null, 2));
+
+      const bookingData = req.body;
+
+      if (!bookingData.client_id || !bookingData.provider_id || !bookingData.commitment_fee) {
+        res.status(400).json({
+          success: false,
+          message: 'Missing required fields: client_id, provider_id, commitment_fee',
+        });
+        return;
+      }
+
+      const { booking, error } = await bookingService.createBookingWithWallet(bookingData);
+
+      if (error) {
+        if (error.code === 'INSUFFICIENT_BALANCE') {
+          res.status(400).json({
+            success: false,
+            message: 'Insufficient wallet balance',
+            error: {
+              code: 'INSUFFICIENT_BALANCE',
+              required: error.required,
+              available: error.available,
+            },
+          });
+          return;
+        }
+
+        console.error('❌ Create booking with wallet failed:', error);
+        res.status(400).json({
+          success: false,
+          message: 'Failed to create booking',
+          error: error.message || error,
+        });
+        return;
+      }
+
+      await bookingService.notifyProviderOfNewBooking(booking.id);
+
+      console.log('✅ Booking created with wallet successfully');
+      res.status(200).json({
+        success: true,
+        message: 'Booking created successfully. Commitment fee deducted from wallet and held in escrow.',
+        data: {
+          booking_id: booking.id,
+          status: booking.status,
+          commitment_fee: booking.commitment_fee,
+        },
+      });
+    } catch (error: any) {
+      console.error('❌ Create booking with wallet error:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Internal server error',
+        error: error.message,
+      });
+    }
+  }
 }
 
 export const bookingController = new BookingController();

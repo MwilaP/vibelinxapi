@@ -75,6 +75,7 @@ export interface Booking {
   commitment_fee: number;
   balance_due: number;
   status: string;
+  payment_type?: string;
 }
 
 export interface Provider {
