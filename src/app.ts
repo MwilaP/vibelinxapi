@@ -5,6 +5,7 @@ import morgan from 'morgan';
 import { config } from './config';
 import paymentRoutes from './routes/payment.routes';
 import bookingRoutes from './routes/booking.routes';
+import testRoutes from './routes/test.routes';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler';
 
 const app: Application = express();
@@ -28,6 +29,7 @@ app.get('/health', (req, res) => {
 
 app.use('/api/payments', paymentRoutes);
 app.use('/api/bookings', bookingRoutes);
+app.use('/api/test', testRoutes);
 
 app.use(notFoundHandler);
 app.use(errorHandler);

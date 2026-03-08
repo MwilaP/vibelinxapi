@@ -8,35 +8,55 @@ class NotificationService {
   private sms: any;
 
   constructor() {
-    logger.info('Initializing Notification Service', {
+    logger.info('🚀 Initializing Notification Service', {
       hasUsername: !!config.africastalking.username,
       hasApiKey: !!config.africastalking.apiKey,
       hasSenderId: !!config.africastalking.senderId,
       usernameLength: config.africastalking.username?.length || 0,
       apiKeyLength: config.africastalking.apiKey?.length || 0,
+      username: config.africastalking.username ? `${config.africastalking.username.substring(0, 3)}***` : 'MISSING',
+      apiKey: config.africastalking.apiKey ? `${config.africastalking.apiKey.substring(0, 8)}***` : 'MISSING',
     });
+
+    if (!config.africastalking.username || config.africastalking.username.trim() === '') {
+      logger.error('❌ AT_USERNAME is missing or empty in environment variables!');
+      logger.error('Please set AT_USERNAME in your .env file');
+    }
+
+    if (!config.africastalking.apiKey || config.africastalking.apiKey.trim() === '') {
+      logger.error('❌ AT_API_KEY is missing or empty in environment variables!');
+      logger.error('Please set AT_API_KEY in your .env file');
+    }
 
     if (config.africastalking.username && config.africastalking.apiKey) {
       try {
+        logger.info('🔧 Attempting to initialize Africa\'s Talking client...');
         this.client = AfricasTalking({
           apiKey: config.africastalking.apiKey,
           username: config.africastalking.username,
         });
         this.sms = this.client.SMS;
-        logger.info('Africa\'s Talking SMS service initialized successfully', {
+        logger.info('✅ Africa\'s Talking SMS service initialized successfully', {
           username: config.africastalking.username,
-          senderId: config.africastalking.senderId || 'none',
+          senderId: config.africastalking.senderId || 'default',
+          smsServiceAvailable: !!this.sms,
         });
       } catch (error) {
-        logger.error('Failed to initialize Africa\'s Talking client', {
+        logger.error('❌ CRITICAL: Failed to initialize Africa\'s Talking client', {
           error: error instanceof Error ? error.message : error,
+          errorType: error instanceof Error ? error.name : typeof error,
           stack: error instanceof Error ? error.stack : undefined,
         });
+        logger.error('SMS notifications will NOT work until this is resolved!');
       }
     } else {
-      logger.warn('Africa\'s Talking credentials not configured - SMS notifications disabled', {
+      logger.warn('⚠️  Africa\'s Talking credentials not configured - SMS notifications DISABLED', {
         missingUsername: !config.africastalking.username,
         missingApiKey: !config.africastalking.apiKey,
+        envCheck: {
+          AT_USERNAME: process.env.AT_USERNAME ? 'SET' : 'NOT SET',
+          AT_API_KEY: process.env.AT_API_KEY ? 'SET' : 'NOT SET',
+        }
       });
     }
   }
@@ -91,33 +111,40 @@ class NotificationService {
   }
 
   async sendBookingNotification(notification: BookingNotification): Promise<SMSResponse> {
-    logger.info('sendBookingNotification: Starting', {
+    logger.info('📱 sendBookingNotification: Starting', {
       bookingId: notification.booking_id,
       providerPhone: notification.provider_phone,
+      hasClient: !!this.client,
+      hasSMS: !!this.sms,
     });
 
     if (!this.sms) {
-      logger.warn('sendBookingNotification: SMS service not initialized - skipping notification', { 
+      logger.error('❌ sendBookingNotification: SMS service NOT initialized - cannot send notification', { 
         bookingId: notification.booking_id,
+        hasClient: !!this.client,
+        hasSMS: !!this.sms,
+        troubleshooting: 'Check AT_USERNAME and AT_API_KEY in .env file',
       });
       return {
         success: false,
-        message: 'SMS service not initialized',
+        message: 'SMS service not initialized - check AT_USERNAME and AT_API_KEY environment variables',
       };
     }
 
     try {
       const phoneNumber = this.formatPhoneNumber(notification.provider_phone);
       if (!phoneNumber) {
-        logger.warn('sendBookingNotification: Invalid phone number', {
+        logger.error('❌ sendBookingNotification: Invalid phone number format', {
           bookingId: notification.booking_id,
           rawPhone: notification.provider_phone,
+          expectedFormat: '+260XXXXXXXXX or 0XXXXXXXXX or 9XXXXXXXX',
         });
         return {
           success: false,
-          message: 'Invalid phone number',
+          message: `Invalid phone number format: ${notification.provider_phone}`,
         };
       }
+      logger.info('✅ Phone number formatted successfully', { formatted: phoneNumber });
 
       const message = this.generateBookingMessage(notification);
 
@@ -127,24 +154,48 @@ class NotificationService {
         from: config.africastalking.senderId || undefined,
       };
 
-      logger.info('sendBookingNotification: Calling Africa\'s Talking API', {
+      logger.info('📡 sendBookingNotification: Calling Africa\'s Talking API', {
         to: options.to,
         messageLength: options.message.length,
         from: options.from || 'default',
+        messagePreview: options.message.substring(0, 50) + '...',
       });
 
-      const response = await this.sms.send(options);
+      let response;
+      try {
+        response = await this.sms.send(options);
+        logger.info('📨 Africa\'s Talking API Response received', {
+          bookingId: notification.booking_id,
+          fullResponse: JSON.stringify(response, null, 2),
+          hasMessageData: !!response.SMSMessageData,
+          hasRecipients: !!(response.SMSMessageData?.Recipients),
+          recipientCount: response.SMSMessageData?.Recipients?.length || 0,
+        });
+      } catch (apiError: any) {
+        logger.error('❌ Africa\'s Talking API call failed', {
+          bookingId: notification.booking_id,
+          error: apiError.message,
+          errorType: apiError.name,
+          statusCode: apiError.statusCode,
+          stack: apiError.stack,
+        });
+        throw apiError;
+      }
 
-      logger.info('sendBookingNotification: SMS sent successfully', {
-        bookingId: notification.booking_id,
-        response: JSON.stringify(response),
-        recipients: response.SMSMessageData?.Recipients || [],
-      });
-
-      if (response.SMSMessageData.Recipients.length > 0) {
+      if (response.SMSMessageData?.Recipients && response.SMSMessageData.Recipients.length > 0) {
         const recipient = response.SMSMessageData.Recipients[0];
+        logger.info('📋 Recipient status', {
+          status: recipient.status,
+          statusCode: recipient.statusCode,
+          messageId: recipient.messageId,
+          cost: recipient.cost,
+        });
         
         if (recipient.status === 'Success') {
+          logger.info('✅ SMS sent successfully!', {
+            bookingId: notification.booking_id,
+            messageId: recipient.messageId,
+          });
           return {
             success: true,
             message: 'Booking notification sent successfully',
@@ -152,27 +203,38 @@ class NotificationService {
             recipients: response.SMSMessageData.Recipients.length,
           };
         } else {
+          logger.error('❌ SMS failed at provider level', {
+            status: recipient.status,
+            statusCode: recipient.statusCode,
+            number: recipient.number,
+          });
           return {
             success: false,
-            message: `Failed to send SMS: ${recipient.status}`,
+            message: `Failed to send SMS: ${recipient.status} (Code: ${recipient.statusCode})`,
           };
         }
       } else {
+        logger.error('❌ No recipients in response', {
+          response: JSON.stringify(response),
+        });
         return {
           success: false,
-          message: 'No recipients processed',
+          message: 'No recipients processed by Africa\'s Talking',
         };
       }
     } catch (error: any) {
-      logger.error('sendBookingNotification: Failed to send SMS', {
+      logger.error('❌ EXCEPTION in sendBookingNotification', {
         bookingId: notification.booking_id,
         error: error instanceof Error ? error.message : String(error),
         errorName: error instanceof Error ? error.name : 'Unknown',
+        errorType: typeof error,
+        statusCode: error.statusCode,
         stack: error instanceof Error ? error.stack : undefined,
+        fullError: JSON.stringify(error, null, 2),
       });
       return {
         success: false,
-        message: error.message || 'Failed to send booking notification',
+        message: `SMS Error: ${error.message || 'Failed to send booking notification'}`,
       };
     }
   }
