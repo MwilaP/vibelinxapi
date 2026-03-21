@@ -588,15 +588,38 @@ class BookingService {
         return { booking: null, error: bookingError };
       }
 
+      // Calculate escrow amount (commitment fee minus platform fee portion)
+      // Platform fee is 5% of service price, commitment is 10% of total
+      // So platform fee portion of commitment = platform_fee * 0.10
+      const platformFee = parseFloat(bookingData.platform_fee) || 0;
+      const platformFeePortionOfCommitment = platformFee * 0.10;
+      const providerEscrowAmount = commitmentFee - platformFeePortionOfCommitment;
+
+      // Deduct platform fee portion separately (goes to platform, not escrow)
+      if (platformFeePortionOfCommitment > 0) {
+        await walletService.recordWalletTransaction({
+          wallet_id: clientWallet.id,
+          transaction_type: 'platform_fee',
+          amount: platformFeePortionOfCommitment,
+          balance_before: parseFloat(clientWallet.available_balance),
+          balance_after: parseFloat(clientWallet.available_balance) - platformFeePortionOfCommitment,
+          reference_id: booking.id,
+          reference_type: 'booking',
+          description: 'Platform fee for booking',
+        });
+      }
+
       const { escrow, error: escrowError } = await escrowService.createEscrow({
         booking_id: booking.id,
         client_wallet_id: clientWallet.id,
         provider_wallet_id: providerWallet.id,
-        amount: commitmentFee,
+        amount: providerEscrowAmount,
         metadata: {
           service_name: bookingData.service_name,
           booking_date: bookingData.booking_date,
           booking_time: bookingData.booking_time,
+          platform_fee_deducted: platformFeePortionOfCommitment,
+          original_commitment_fee: commitmentFee,
         },
       });
 

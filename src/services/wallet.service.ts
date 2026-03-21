@@ -419,7 +419,7 @@ class WalletService {
     }
   }
 
-  private async recordWalletTransaction(data: {
+  async recordWalletTransaction(data: {
     wallet_id: string;
     transaction_type: string;
     amount: number;
