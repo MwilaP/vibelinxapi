@@ -136,8 +136,6 @@ class BookingService {
         client_name: client.name || 'Client',
         service_name: booking.service_name,
         booking_date: booking.booking_date,
-        booking_time: booking.booking_time,
-        location_type: booking.location_type,
         total_amount: booking.total_amount,
       };
 
@@ -246,10 +244,7 @@ class BookingService {
           service_duration: bookingData.service_duration,
           service_price: bookingData.service_price,
           booking_date: bookingData.booking_date,
-          booking_time: bookingData.booking_time,
           duration_minutes: bookingData.duration_minutes || 120,
-          location_type: bookingData.location_type,
-          location_details: bookingData.location_details || null,
           client_notes: bookingData.client_notes || null,
           platform_fee: bookingData.platform_fee,
           commitment_fee: bookingData.commitment_fee,
@@ -328,7 +323,7 @@ class BookingService {
           client.phone,
           bookingId,
           'confirmed',
-          `${provider?.name || 'Your provider'} has accepted your booking for ${booking.service_name} on ${booking.booking_date} at ${booking.booking_time}.`
+          `${provider?.name || 'Your provider'} has accepted your booking for ${booking.service_name} on ${booking.booking_date}.`
         );
       }
 
@@ -336,7 +331,7 @@ class BookingService {
         console.log('  📱 Sending SMS to provider...');
         await notificationService.sendCustomMessage(
           provider.phone,
-          `You have confirmed booking ${bookingId} for ${booking.service_name} on ${booking.booking_date} at ${booking.booking_time}. Client: ${client?.name || 'Client'}`
+          `You have confirmed booking ${bookingId} for ${booking.service_name} on ${booking.booking_date}. Client: ${client?.name || 'Client'}`
         );
       }
 
@@ -566,10 +561,7 @@ class BookingService {
           service_duration: bookingData.service_duration,
           service_price: bookingData.service_price,
           booking_date: bookingData.booking_date,
-          booking_time: bookingData.booking_time,
           duration_minutes: bookingData.duration_minutes || 120,
-          location_type: bookingData.location_type,
-          location_details: bookingData.location_details || null,
           client_notes: bookingData.client_notes || null,
           platform_fee: bookingData.platform_fee,
           commitment_fee: commitmentFee,
@@ -617,7 +609,6 @@ class BookingService {
         metadata: {
           service_name: bookingData.service_name,
           booking_date: bookingData.booking_date,
-          booking_time: bookingData.booking_time,
           platform_fee_deducted: platformFeePortionOfCommitment,
           original_commitment_fee: commitmentFee,
         },

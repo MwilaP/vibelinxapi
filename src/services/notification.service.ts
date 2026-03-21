@@ -107,7 +107,7 @@ class NotificationService {
   }
 
   private generateBookingMessage(notification: BookingNotification): string {
-    return `New Booking Alert!\n\nClient: ${notification.client_name}\nService: ${notification.service_name}\nDate: ${notification.booking_date}\nTime: ${notification.booking_time}\nLocation: ${notification.location_type}\nAmount: ZMW ${notification.total_amount.toFixed(2)}\n\nBooking ID: ${notification.booking_id}\n\nPlease confirm or decline this booking in the VibeLinx app.`;
+    return `New Booking Alert!\n\nClient: ${notification.client_name}\nService: ${notification.service_name}\nDate: ${notification.booking_date}\nAmount: ZMW ${notification.total_amount.toFixed(2)}\n\nBooking ID: ${notification.booking_id}\n\nPlease confirm or decline this booking in the VibeLinx app.`;
   }
 
   async sendBookingNotification(notification: BookingNotification): Promise<SMSResponse> {

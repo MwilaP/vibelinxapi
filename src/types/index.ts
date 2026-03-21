@@ -50,8 +50,6 @@ export interface BookingNotification {
   client_name: string;
   service_name: string;
   booking_date: string;
-  booking_time: string;
-  location_type: string;
   total_amount: number;
 }
 
@@ -69,8 +67,6 @@ export interface Booking {
   service_name: string;
   service_price: number;
   booking_date: string;
-  booking_time: string;
-  location_type: string;
   total_amount: number;
   commitment_fee: number;
   balance_due: number;
@@ -92,10 +88,7 @@ export interface CreateBookingWithPaymentRequest {
   service_duration: string;
   service_price: number;
   booking_date: string;
-  booking_time: string;
   duration_minutes: number;
-  location_type: 'my' | 'provider' | 'hotel';
-  location_details?: string;
   client_notes?: string;
   platform_fee: number;
   commitment_fee: number;
