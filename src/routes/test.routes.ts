@@ -42,6 +42,39 @@ router.post('/sms/test', async (req: Request, res: Response) => {
   }
 });
 
+router.post('/sms/test-default', async (req: Request, res: Response) => {
+  try {
+    const DEFAULT_TEST_NUMBER = '0978699390';
+    const { message } = req.body;
+
+    logger.info('🧪 Test SMS with default number endpoint called', {
+      defaultNumber: DEFAULT_TEST_NUMBER,
+      hasCustomMessage: !!message,
+    });
+
+    const testMessage = message || 'This is a test SMS from VibeLinx API notification service. If you receive this, SMS is working correctly!';
+
+    const result = await notificationService.sendCustomMessage(DEFAULT_TEST_NUMBER, testMessage);
+
+    return res.json({
+      success: result.success,
+      message: result.message,
+      messageId: result.messageId,
+      phoneNumber: DEFAULT_TEST_NUMBER,
+      details: result,
+    });
+  } catch (error: any) {
+    logger.error('❌ Test SMS with default number error', {
+      error: error.message,
+      stack: error.stack,
+    });
+    return res.status(500).json({
+      success: false,
+      error: error.message || 'Failed to send test SMS',
+    });
+  }
+});
+
 router.get('/sms/status', async (req: Request, res: Response) => {
   try {
     const config = await import('../config');

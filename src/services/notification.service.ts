@@ -106,8 +106,23 @@ class NotificationService {
     return null;
   }
 
-  private generateBookingMessage(notification: BookingNotification): string {
-    return `New Booking Alert!\n\nClient: ${notification.client_name}\nService: ${notification.service_name}\nDate: ${notification.booking_date}\nAmount: ZMW ${notification.total_amount.toFixed(2)}\n\nBooking ID: ${notification.booking_id}\n\nPlease confirm or decline this booking in the VibeLinx app.`;
+  private generateProviderBookingMessage(notification: BookingNotification): string {
+    const formattedDate = new Date(notification.booking_date).toLocaleDateString('en-GB', {
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric'
+    });
+    return `Booking Update\n\nYou have a new booking request for ${notification.service_name}. Date: ${formattedDate}. Please confirm or reject this booking in your dashboard.\n\nVibeLinx`;
+  }
+
+  private generateClientConfirmationMessage(notification: BookingNotification): string {
+    const formattedDate = new Date(notification.booking_date).toLocaleDateString('en-GB', {
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric'
+    });
+    const providerName = notification.provider_name || 'Provider';
+    return `Booking Update\n\n${providerName} has confirmed your booking for ${notification.service_name}. Date: ${formattedDate}. Please contact ${providerName}: ${notification.provider_phone} for more info.\n\nVibeLinx`;
   }
 
   async sendBookingNotification(notification: BookingNotification): Promise<SMSResponse> {
@@ -146,18 +161,17 @@ class NotificationService {
       }
       logger.info('✅ Phone number formatted successfully', { formatted: phoneNumber });
 
-      const message = this.generateBookingMessage(notification);
+      const message = this.generateProviderBookingMessage(notification);
 
-      const options = {
+      const options: any = {
         to: [phoneNumber],
         message: message,
-        from: config.africastalking.senderId || undefined,
       };
 
       logger.info('📡 sendBookingNotification: Calling Africa\'s Talking API', {
         to: options.to,
         messageLength: options.message.length,
-        from: options.from || 'default',
+        from: 'default (no custom sender ID)',
         messagePreview: options.message.substring(0, 50) + '...',
       });
 
@@ -239,6 +253,90 @@ class NotificationService {
     }
   }
 
+  async sendClientConfirmation(notification: BookingNotification): Promise<SMSResponse> {
+    logger.info('📱 sendClientConfirmation: Starting', {
+      bookingId: notification.booking_id,
+      clientPhone: notification.client_phone,
+    });
+
+    if (!this.sms) {
+      logger.error('❌ sendClientConfirmation: SMS service not initialized');
+      return { success: false, message: 'SMS service not initialized' };
+    }
+
+    if (!notification.client_phone) {
+      logger.warn('⚠️ sendClientConfirmation: No client phone number provided');
+      return { success: false, message: 'No client phone number provided' };
+    }
+
+    try {
+      const phoneNumber = this.formatPhoneNumber(notification.client_phone);
+      if (!phoneNumber) {
+        logger.error('❌ sendClientConfirmation: Invalid phone number format', {
+          bookingId: notification.booking_id,
+          rawPhone: notification.client_phone,
+        });
+        return {
+          success: false,
+          message: `Invalid phone number format: ${notification.client_phone}`,
+        };
+      }
+
+      const message = this.generateClientConfirmationMessage(notification);
+
+      const options: any = {
+        to: [phoneNumber],
+        message: message,
+      };
+
+      logger.info('📡 sendClientConfirmation: Calling Africa\'s Talking API', {
+        to: options.to,
+        messageLength: options.message.length,
+      });
+
+      const response = await this.sms.send(options);
+
+      if (response.SMSMessageData?.Recipients && response.SMSMessageData.Recipients.length > 0) {
+        const recipient = response.SMSMessageData.Recipients[0];
+        
+        if (recipient.status === 'Success') {
+          logger.info('✅ Client confirmation SMS sent successfully!', {
+            bookingId: notification.booking_id,
+            messageId: recipient.messageId,
+          });
+          return {
+            success: true,
+            message: 'Client confirmation sent successfully',
+            messageId: recipient.messageId,
+          };
+        } else {
+          logger.error('❌ SMS failed at provider level', {
+            status: recipient.status,
+            statusCode: recipient.statusCode,
+          });
+          return {
+            success: false,
+            message: `Failed to send SMS: ${recipient.status}`,
+          };
+        }
+      }
+
+      return {
+        success: false,
+        message: 'No recipients processed',
+      };
+    } catch (error: any) {
+      logger.error('❌ EXCEPTION in sendClientConfirmation', {
+        bookingId: notification.booking_id,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return {
+        success: false,
+        message: error.message || 'Failed to send client confirmation',
+      };
+    }
+  }
+
   async sendPaymentConfirmation(
     phoneNumber: string,
     bookingId: string,
@@ -263,12 +361,11 @@ class NotificationService {
         logger.warn('sendPaymentConfirmation: Invalid phone number', { phoneNumber });
         return { success: false, message: 'Invalid phone number' };
       }
-      const message = `Payment Confirmed!\n\nYour ${paymentType} payment of ZMW ${amount.toFixed(2)} for booking ${bookingId} has been received.\n\nThank you for using VibeLinx!`;
+      const message = `Your payment of ZMW ${amount.toFixed(2)} has been received. Thank you for using VibeLinx!`;
 
-      const options = {
+      const options: any = {
         to: [formattedPhone],
         message: message,
-        from: config.africastalking.senderId,
       };
 
       const response = await this.sms.send(options);
@@ -323,18 +420,17 @@ class NotificationService {
         logger.warn('sendBookingStatusUpdate: Invalid phone number', { phoneNumber });
         return { success: false, message: 'Invalid phone number' };
       }
-      let message = `Booking Update!\n\nYour booking ${bookingId} status: ${status.toUpperCase()}`;
+      let message = `Booking Update\n\nYour booking status: ${status.toUpperCase()}.`;
       
       if (additionalInfo) {
-        message += `\n\n${additionalInfo}`;
+        message += ` ${additionalInfo}`;
       }
       
       message += '\n\nVibeLinx';
 
-      const options = {
+      const options: any = {
         to: [formattedPhone],
         message: message,
-        from: config.africastalking.senderId,
       };
 
       const response = await this.sms.send(options);
@@ -368,30 +464,62 @@ class NotificationService {
   }
 
   async sendCustomMessage(phoneNumber: string, message: string): Promise<SMSResponse> {
-    logger.info('sendCustomMessage: Starting', { phoneNumber });
+    logger.info('🔍 sendCustomMessage: Starting', { 
+      phoneNumber,
+      messageLength: message.length,
+      hasSMSService: !!this.sms,
+    });
 
     if (!this.sms) {
-      logger.warn('sendCustomMessage: SMS service not initialized');
+      logger.error('❌ sendCustomMessage: SMS service not initialized');
       return { success: false, message: 'SMS service not initialized' };
     }
 
     try {
       const formattedPhone = this.formatPhoneNumber(phoneNumber);
+      logger.info('📞 Phone formatting result', { 
+        original: phoneNumber, 
+        formatted: formattedPhone 
+      });
+      
       if (!formattedPhone) {
-        logger.warn('sendCustomMessage: Invalid phone number', { phoneNumber });
+        logger.error('❌ sendCustomMessage: Invalid phone number', { phoneNumber });
         return { success: false, message: 'Invalid phone number' };
       }
 
-      const options = {
+      const options: any = {
         to: [formattedPhone],
         message: message,
-        from: config.africastalking.senderId,
       };
+
+      logger.info('📡 Sending SMS with options', {
+        to: options.to,
+        messageLength: options.message.length,
+        from: 'default (no custom sender ID)',
+        messagePreview: options.message.substring(0, 100),
+      });
 
       const response = await this.sms.send(options);
 
-      if (response.SMSMessageData.Recipients.length > 0) {
+      logger.info('📨 Full Africa\'s Talking API Response', {
+        fullResponse: JSON.stringify(response, null, 2),
+        hasMessageData: !!response.SMSMessageData,
+        hasRecipients: !!(response.SMSMessageData?.Recipients),
+        recipientCount: response.SMSMessageData?.Recipients?.length || 0,
+        responseKeys: Object.keys(response),
+        messageDataKeys: response.SMSMessageData ? Object.keys(response.SMSMessageData) : [],
+      });
+
+      if (response.SMSMessageData?.Recipients && response.SMSMessageData.Recipients.length > 0) {
         const recipient = response.SMSMessageData.Recipients[0];
+        
+        logger.info('✅ Recipient details', {
+          status: recipient.status,
+          statusCode: recipient.statusCode,
+          messageId: recipient.messageId,
+          number: recipient.number,
+          cost: recipient.cost,
+        });
         
         return {
           success: recipient.status === 'Success',
@@ -402,13 +530,22 @@ class NotificationService {
         };
       }
 
+      logger.error('❌ No recipients in response', {
+        response: JSON.stringify(response),
+        recipientCount: response.SMSMessageData?.Recipients?.length || 0,
+      });
+
       return {
         success: false,
         message: 'No recipients processed',
       };
     } catch (error: any) {
-      logger.error('sendCustomMessage: Failed', {
+      logger.error('❌ sendCustomMessage: Exception caught', {
         error: error instanceof Error ? error.message : String(error),
+        errorType: error instanceof Error ? error.name : typeof error,
+        statusCode: error.statusCode,
+        stack: error instanceof Error ? error.stack : undefined,
+        fullError: JSON.stringify(error, null, 2),
       });
       return {
         success: false,

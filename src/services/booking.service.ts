@@ -133,6 +133,7 @@ class BookingService {
       const notification: BookingNotification = {
         booking_id: booking.id,
         provider_phone: provider.phone,
+        provider_name: provider.name || 'Provider',
         client_name: client.name || 'Client',
         service_name: booking.service_name,
         booking_date: booking.booking_date,
@@ -317,22 +318,19 @@ class BookingService {
       console.log('  Client phone:', client?.phone || 'N/A');
       console.log('  Provider phone:', provider?.phone || 'N/A');
 
-      if (client && client.phone) {
-        console.log('  📱 Sending SMS to client...');
-        await notificationService.sendBookingStatusUpdate(
-          client.phone,
-          bookingId,
-          'confirmed',
-          `${provider?.name || 'Your provider'} has accepted your booking for ${booking.service_name} on ${booking.booking_date}.`
-        );
-      }
-
-      if (provider && provider.phone) {
-        console.log('  📱 Sending SMS to provider...');
-        await notificationService.sendCustomMessage(
-          provider.phone,
-          `You have confirmed booking ${bookingId} for ${booking.service_name} on ${booking.booking_date}. Client: ${client?.name || 'Client'}`
-        );
+      if (client && client.phone && provider) {
+        console.log('  📱 Sending confirmation SMS to client...');
+        const clientNotification: BookingNotification = {
+          booking_id: booking.id,
+          provider_phone: provider.phone,
+          provider_name: provider.name || 'Provider',
+          client_name: client.name || 'Client',
+          client_phone: client.phone,
+          service_name: booking.service_name,
+          booking_date: booking.booking_date,
+          total_amount: booking.total_amount,
+        };
+        await notificationService.sendClientConfirmation(clientNotification);
       }
 
       console.log('  ✅ Accept booking completed successfully');
@@ -395,20 +393,12 @@ class BookingService {
       console.log('  Provider phone:', provider?.phone || 'N/A');
 
       if (client && client.phone) {
-        console.log('  📱 Sending SMS to client...');
+        console.log('  📱 Sending completion SMS to client...');
         await notificationService.sendBookingStatusUpdate(
           client.phone,
           bookingId,
           'completed',
           `Your booking for ${booking.service_name} has been completed. Thank you for using VibeLinx!`
-        );
-      }
-
-      if (provider && provider.phone) {
-        console.log('  📱 Sending SMS to provider...');
-        await notificationService.sendCustomMessage(
-          provider.phone,
-          `Booking ${bookingId} completed! Your payment of ZMW ${booking.total_amount.toFixed(2)} will be released to your wallet.`
         );
       }
 
@@ -480,20 +470,12 @@ class BookingService {
       console.log('  Provider phone:', provider?.phone || 'N/A');
 
       if (client && client.phone) {
-        console.log('  📱 Sending SMS to client...');
+        console.log('  📱 Sending decline notification to client...');
         await notificationService.sendBookingStatusUpdate(
           client.phone,
           bookingId,
           'declined',
           `Your booking for ${booking.service_name} has been declined by the provider. ${reason ? 'Reason: ' + reason : ''} Your payment will be refunded.`
-        );
-      }
-
-      if (provider && provider.phone) {
-        console.log('  📱 Sending SMS to provider...');
-        await notificationService.sendCustomMessage(
-          provider.phone,
-          `You have declined booking ${bookingId}. The client will be notified and refunded.`
         );
       }
 

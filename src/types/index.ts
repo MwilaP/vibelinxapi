@@ -47,7 +47,9 @@ export interface PaymentVerificationResponse {
 export interface BookingNotification {
   booking_id: string;
   provider_phone: string;
+  provider_name?: string;
   client_name: string;
+  client_phone?: string;
   service_name: string;
   booking_date: string;
   total_amount: number;
