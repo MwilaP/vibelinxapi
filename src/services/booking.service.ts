@@ -562,21 +562,21 @@ class BookingService {
         return { booking: null, error: bookingError };
       }
 
-      // Calculate escrow amount (commitment fee minus platform fee portion)
-      // Platform fee is 5% of service price, commitment is 10% of total
-      // So platform fee portion of commitment = platform_fee * 0.10
+      // Calculate escrow amount (commitment fee minus platform fee)
+      // Platform fee is 1% of service price and goes to platform
+      // Commitment is 10% of service price and goes to escrow
+      // Total commitment fee paid = platform fee + 10% commitment
       const platformFee = parseFloat(bookingData.platform_fee) || 0;
-      const platformFeePortionOfCommitment = platformFee * 0.10;
-      const providerEscrowAmount = commitmentFee - platformFeePortionOfCommitment;
+      const providerEscrowAmount = commitmentFee - platformFee;
 
-      // Deduct platform fee portion separately (goes to platform, not escrow)
-      if (platformFeePortionOfCommitment > 0) {
+      // Deduct platform fee separately (goes to platform, not escrow)
+      if (platformFee > 0) {
         await walletService.recordWalletTransaction({
           wallet_id: clientWallet.id,
           transaction_type: 'platform_fee',
-          amount: platformFeePortionOfCommitment,
+          amount: platformFee,
           balance_before: parseFloat(clientWallet.available_balance),
-          balance_after: parseFloat(clientWallet.available_balance) - platformFeePortionOfCommitment,
+          balance_after: parseFloat(clientWallet.available_balance) - platformFee,
           reference_id: booking.id,
           reference_type: 'booking',
           description: 'Platform fee for booking',
@@ -591,7 +591,7 @@ class BookingService {
         metadata: {
           service_name: bookingData.service_name,
           booking_date: bookingData.booking_date,
-          platform_fee_deducted: platformFeePortionOfCommitment,
+          platform_fee_deducted: platformFee,
           original_commitment_fee: commitmentFee,
         },
       });
