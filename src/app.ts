@@ -8,6 +8,7 @@ import bookingRoutes from './routes/booking.routes';
 import walletRoutes from './routes/wallet.routes';
 import adminRoutes from './routes/admin.routes';
 import testRoutes from './routes/test.routes';
+import subscriptionRoutes from './routes/subscription.routes';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler';
 
 const app: Application = express();
@@ -34,6 +35,7 @@ app.use('/api/bookings', bookingRoutes);
 app.use('/api/wallet', walletRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/test', testRoutes);
+app.use('/api/subscriptions', subscriptionRoutes);
 
 app.use(notFoundHandler);
 app.use(errorHandler);
