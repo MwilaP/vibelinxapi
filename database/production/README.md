@@ -4,10 +4,10 @@ This directory contains consolidated, production-ready database migration files 
 
 ## Overview
 
-**Total Migrations**: 10 consolidated files  
-**Source Files**: 35 from vibeslinx + 7 from vibelinxapi = 42 original files  
+**Total Migrations**: 13 consolidated files  
+**Source Files**: 35 from vibeslinx + 7 from vibelinxapi = 42 original files + 3 admin system files  
 **Target Database**: Supabase (PostgreSQL)  
-**Purpose**: Fresh production database setup
+**Purpose**: Fresh production database setup with comprehensive admin panel
 
 ## Migration Files
 
@@ -96,6 +96,41 @@ Execute these files **in order** for a fresh Supabase project:
 - Configuration for realtime subscriptions
 - **Includes fixes from**: 022_enable_realtime_transactions.sql
 
+### 011_admin_system.sql
+**Admin Panel Core Tables**
+- Admin users and role management (super_admin, finance_admin, support_admin, operations_admin)
+- Granular permission system (35+ permissions)
+- User management and flagging system
+- Booking dispute resolution
+- Wallet adjustment approval workflows
+- Escrow admin actions with dual approval
+- Financial reporting tables (revenue, reconciliation, summaries)
+- Admin activity logging and audit trail
+- Complete indexes and permission seeding
+
+### 012_admin_functions.sql
+**Admin Stored Procedures**
+- Permission checking functions
+- Activity logging functions
+- Wallet adjustment request/approve/reject
+- Escrow action request/approve/reject with dual approval support
+- Booking dispute resolution
+- Daily revenue report generation
+- Wallet reconciliation functions
+
+### 013_admin_views_policies.sql
+**Admin Dashboard Views & Security**
+- Dashboard statistics view
+- Pending approvals view
+- Flagged users summary
+- Active disputes view
+- Wallet summary view
+- Revenue summary (last 30 days)
+- Recent transactions view
+- Withdrawal requests summary
+- Admin activity summary
+- Row Level Security policies for all admin tables
+
 ## Deployment Instructions
 
 ### Prerequisites
@@ -108,7 +143,7 @@ Execute these files **in order** for a fresh Supabase project:
 **Option A: Supabase SQL Editor (Recommended)**
 1. Log into your Supabase Dashboard
 2. Navigate to SQL Editor
-3. Copy and paste each migration file **in order** (001 → 010)
+3. Copy and paste each migration file **in order** (001 → 013)
 4. Execute each migration
 5. Verify success before proceeding to the next
 
@@ -128,6 +163,9 @@ psql $DATABASE_URL -f 007_provider_stats.sql
 psql $DATABASE_URL -f 008_subscriptions.sql
 psql $DATABASE_URL -f 009_indexes_optimization.sql
 psql $DATABASE_URL -f 010_realtime_setup.sql
+psql $DATABASE_URL -f 011_admin_system.sql
+psql $DATABASE_URL -f 012_admin_functions.sql
+psql $DATABASE_URL -f 013_admin_views_policies.sql
 ```
 
 **Option C: Supabase CLI**
@@ -170,7 +208,11 @@ ORDER BY table_name;
 -- bookings, escrow_payments, escrow_transactions, notifications,
 -- profiles, provider_ratings, provider_stats, reviews, subscriptions,
 -- transactions, wallet_balances, wallet_transactions, wallets,
--- withdrawal_requests
+-- withdrawal_requests, admin_users, admin_permissions, admin_role_permissions,
+-- admin_user_permissions, user_actions, user_flags, booking_disputes,
+-- booking_admin_notes, wallet_adjustments, escrow_admin_actions,
+-- withdrawal_admin_actions, platform_revenue, wallet_reconciliation,
+-- transaction_summaries, admin_activity_log, admin_sessions
 
 -- Check RLS is enabled
 SELECT tablename, rowsecurity 
@@ -222,6 +264,24 @@ DATABASE_URL=postgresql://postgres:[PASSWORD]@[PROJECT_REF].supabase.co:5432/pos
 ### Analytics
 - **provider_stats**: Provider performance metrics
 - **subscriptions**: Client subscription management
+
+### Admin System
+- **admin_users**: Admin accounts with role assignments
+- **admin_permissions**: Granular permission definitions (35+ permissions)
+- **admin_role_permissions**: Permission mappings for roles
+- **admin_user_permissions**: Individual permission overrides
+- **user_actions**: Admin actions on user accounts
+- **user_flags**: User flagging and moderation system
+- **booking_disputes**: Dispute resolution management
+- **booking_admin_notes**: Internal admin notes on bookings
+- **wallet_adjustments**: Wallet balance adjustments with approval workflow
+- **escrow_admin_actions**: Escrow interventions with dual approval
+- **withdrawal_admin_actions**: Withdrawal request processing
+- **platform_revenue**: Revenue tracking and reporting
+- **wallet_reconciliation**: Daily wallet reconciliation records
+- **transaction_summaries**: Daily transaction summaries
+- **admin_activity_log**: Complete audit trail of admin actions
+- **admin_sessions**: Admin login session tracking
 
 ### Storage
 - **profile-photos**: Storage bucket for user photos
@@ -288,6 +348,196 @@ SELECT COUNT(*) FROM public.bookings WHERE status = 'pending';
 SELECT * FROM public.provider_leaderboard LIMIT 10;
 ```
 
+## Admin System Usage
+
+### Admin Roles
+
+The system includes 4 predefined admin roles with different permission levels:
+
+1. **Super Admin** - Full access to all features, can bypass approval workflows
+2. **Finance Admin** - Wallet management, escrow operations, financial reports
+3. **Support Admin** - User management, dispute resolution, booking management
+4. **Operations Admin** - Day-to-day operations, withdrawal processing, basic reporting
+
+### Creating Your First Admin
+
+After running all migrations, create your first super admin.
+
+**Quick Method:**
+1. Open `create_admin_simple.sql` in Supabase SQL Editor
+2. Update the phone number and name at the top
+3. Run the script
+4. Login to admin panel at http://localhost:3001
+
+**Manual Method:**
+```sql
+-- Step 1: Create admin user record (replace USER_ID with actual auth.users id)
+INSERT INTO public.admin_users (user_id, role, status)
+VALUES ('[YOUR_USER_ID]', 'super_admin', 'active');
+
+-- Step 2: Verify admin was created
+SELECT * FROM public.admin_users WHERE role = 'super_admin';
+```
+
+📖 **See [ADMIN_SETUP_GUIDE.md](./ADMIN_SETUP_GUIDE.md) for detailed instructions**
+
+### Common Admin Operations
+
+**View Dashboard Statistics**:
+```sql
+SELECT * FROM public.admin_dashboard_stats;
+```
+
+**View Pending Approvals**:
+```sql
+SELECT * FROM public.pending_approvals ORDER BY requested_at DESC;
+```
+
+**View Active Disputes**:
+```sql
+SELECT * FROM public.active_disputes;
+```
+
+**View Flagged Users**:
+```sql
+SELECT * FROM public.flagged_users_summary;
+```
+
+**Request Wallet Adjustment**:
+```sql
+SELECT public.request_wallet_adjustment(
+  '[ADMIN_ID]'::uuid,
+  '[WALLET_ID]'::uuid,
+  'credit',
+  100.00,
+  'Compensation for service issue'
+);
+```
+
+**Approve Wallet Adjustment**:
+```sql
+SELECT public.approve_wallet_adjustment(
+  '[ADMIN_ID]'::uuid,
+  '[ADJUSTMENT_ID]'::uuid
+);
+```
+
+**Request Escrow Release**:
+```sql
+SELECT public.request_escrow_action(
+  '[ADMIN_ID]'::uuid,
+  '[ESCROW_TRANSACTION_ID]'::uuid,
+  'manual_release',
+  500.00,
+  'Service completed, client unresponsive'
+);
+```
+
+**Approve Escrow Action** (First Approval):
+```sql
+SELECT public.approve_escrow_action(
+  '[ADMIN_ID]'::uuid,
+  '[ACTION_ID]'::uuid,
+  false  -- first approver
+);
+```
+
+**Approve Escrow Action** (Second Approval for amounts > 1000 ZMW):
+```sql
+SELECT public.approve_escrow_action(
+  '[SECOND_ADMIN_ID]'::uuid,
+  '[ACTION_ID]'::uuid,
+  true  -- second approver
+);
+```
+
+**Resolve Booking Dispute**:
+```sql
+SELECT public.resolve_booking_dispute(
+  '[ADMIN_ID]'::uuid,
+  '[DISPUTE_ID]'::uuid,
+  'refund_client',
+  'Service was not provided as agreed',
+  250.00  -- refund amount
+);
+```
+
+**Generate Daily Revenue Report**:
+```sql
+SELECT public.generate_daily_revenue_report(
+  '[ADMIN_ID]'::uuid,
+  CURRENT_DATE
+);
+```
+
+**Reconcile Wallets**:
+```sql
+SELECT public.reconcile_wallets(
+  '[ADMIN_ID]'::uuid,
+  CURRENT_DATE
+);
+```
+
+### Approval Workflow Rules
+
+**Wallet Adjustments:**
+- Amounts < 500 ZMW: Single approval required
+- Amounts >= 500 ZMW: Dual approval required (unless super admin)
+- Super admin can bypass approval for emergencies
+
+**Escrow Actions:**
+- Standard releases (completed bookings): Automated, no approval needed
+- Manual releases: Single approval from finance admin
+- Disputed escrow: Dual approval (support + finance admin)
+- Amounts > 1000 ZMW: Always require dual approval (unless super admin)
+- Super admin can bypass approval for emergencies
+
+**Withdrawal Processing:**
+- Amounts < 1000 ZMW: Single approval
+- Amounts >= 1000 ZMW: Dual approval
+- Super admin can bypass approval for emergencies
+
+### Permission System
+
+The system includes 35+ granular permissions across 5 categories:
+
+**User Management** (7 permissions):
+- `users.view`, `users.search`, `users.suspend`, `users.unsuspend`, `users.verify`, `users.flag`, `users.delete`
+
+**Booking Management** (6 permissions):
+- `bookings.view`, `bookings.update`, `bookings.cancel`, `bookings.disputes.view`, `bookings.disputes.assign`, `bookings.disputes.resolve`
+
+**Wallet Management** (6 permissions):
+- `wallets.view`, `wallets.adjust.request`, `wallets.adjust.approve`, `wallets.transactions.view`, `withdrawals.process`, `withdrawals.approve`
+
+**Escrow Management** (6 permissions):
+- `escrow.view`, `escrow.release.request`, `escrow.release.approve`, `escrow.refund.request`, `escrow.refund.approve`, `escrow.dispute`
+
+**Financial Reports** (4 permissions):
+- `reports.revenue.view`, `reports.transactions.view`, `reports.reconciliation.view`, `reports.export`
+
+**System** (4 permissions):
+- `system.admin.create`, `system.admin.permissions`, `system.logs.view`, `system.settings`
+
+### Admin Activity Monitoring
+
+**View Recent Admin Activity**:
+```sql
+SELECT * FROM public.admin_activity_summary ORDER BY created_at DESC LIMIT 50;
+```
+
+**View Specific Admin's Actions**:
+```sql
+SELECT * FROM public.admin_activity_log 
+WHERE admin_id = '[ADMIN_ID]'::uuid 
+ORDER BY created_at DESC;
+```
+
+**Check Admin Permissions**:
+```sql
+SELECT public.admin_has_permission('[ADMIN_ID]'::uuid, 'wallets.adjust.approve');
+```
+
 ## Troubleshooting
 
 ### Issue: Triggers not firing
@@ -321,6 +571,8 @@ For issues or questions:
 **Consolidated**: April 2026  
 **Original Files**: 42 migrations  
 **Consolidated Files**: 10 migrations  
+**Admin System**: 3 additional migrations (011-013)  
+**Total Files**: 13 migrations  
 **Status**: Production Ready ✅
 
 ---
