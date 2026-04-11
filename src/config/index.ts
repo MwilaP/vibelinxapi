@@ -10,6 +10,7 @@ export const config = {
     apiKey: process.env.LENCOPAY_API_KEY || '',
     baseUrl: process.env.LENCOPAY_BASE_URL || 'https://api.lenco.co/access/v2',
     callbackUrl: process.env.LENCOPAY_CALLBACK_URL || '',
+    accountId: process.env.LENCOPAY_ACCOUNT_ID || '', // Required for transfers
   },
   
   africastalking: {

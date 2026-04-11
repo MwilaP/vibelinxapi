@@ -413,38 +413,41 @@ export class PaymentController {
           transactionId: transaction.id,
           transactionType: transaction.transaction_type,
         });
-      } else if (webhookEvent.event === 'payout.successful' || webhookEvent.event === 'payout.completed') {
-        const payoutData = webhookEvent.data;
+      } else if (webhookEvent.event === 'transfer.successful' || 
+                 webhookEvent.event === 'transfer.completed' ||
+                 webhookEvent.event === 'payout.successful' || 
+                 webhookEvent.event === 'payout.completed') {
+        const transferData = webhookEvent.data;
         
-        logger.info('Processing successful payout', {
+        logger.info('Processing successful transfer/payout', {
           event: webhookEvent.event,
-          reference: payoutData.reference,
-          amount: payoutData.amount,
+          reference: transferData.reference,
+          amount: transferData.amount,
         });
 
-        // Handle payout webhook
+        // Handle transfer/payout webhook
         await withdrawalService.handlePayoutWebhook({
-          reference: payoutData.reference,
+          reference: transferData.reference,
           status: 'successful',
-          externalTransactionId: payoutData.mobileMoneyDetails?.operatorTransactionId,
+          externalTransactionId: transferData.mobileMoneyDetails?.operatorTransactionId,
         });
 
-        logger.info('Payout webhook processed successfully', {
-          reference: payoutData.reference,
+        logger.info('Transfer/payout webhook processed successfully', {
+          reference: transferData.reference,
         });
-      } else if (webhookEvent.event === 'payout.failed') {
-        const payoutData = webhookEvent.data;
+      } else if (webhookEvent.event === 'transfer.failed' || webhookEvent.event === 'payout.failed') {
+        const transferData = webhookEvent.data;
         
-        logger.warn('Payout failed webhook received', {
-          reference: payoutData.reference,
-          reason: payoutData.reasonForFailure,
+        logger.warn('Transfer/payout failed webhook received', {
+          reference: transferData.reference,
+          reason: transferData.reasonForFailure,
         });
 
-        // Handle payout failure
+        // Handle transfer/payout failure
         await withdrawalService.handlePayoutWebhook({
-          reference: payoutData.reference,
+          reference: transferData.reference,
           status: 'failed',
-          failureReason: payoutData.reasonForFailure,
+          failureReason: transferData.reasonForFailure,
         });
       } else if (webhookEvent.event === 'collection.settled' || 
                  webhookEvent.event === 'transaction.credit') {

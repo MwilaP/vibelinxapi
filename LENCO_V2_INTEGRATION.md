@@ -359,9 +359,11 @@ for (let i = 0; i < maxAttempts; i++) {
 
 | Endpoint | Method | Purpose |
 |----------|--------|---------|
-| `/collections/mobile-money` | POST | Initiate mobile money collection |
+| `/collections/mobile-money` | POST | Initiate mobile money collection (receive money) |
 | `/collections/{reference}` | GET | Get collection status by reference |
 | `/collections/{id}/refund` | POST | Initiate refund for a collection |
+| `/transfers/mobile-money` | POST | Initiate mobile money transfer/disbursement (send money) |
+| `/transfers/{reference}` | GET | Get transfer status by reference |
 
 ## Security Considerations
 

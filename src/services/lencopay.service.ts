@@ -360,116 +360,188 @@ class LencopayService {
     payment_method: string;
     payment_phone: string;
     reference: string;
+    account_id?: string;
   }): Promise<any> {
     try {
       const formattedPhone = this.formatPhoneNumber(payoutData.payment_phone);
       const operator = payoutData.payment_method;
 
-      logger.info('Initiating Lenco payout', {
+      logger.info('Initiating Lenco transfer', {
         amount: payoutData.amount,
         operator,
-        phone: formattedPhone,
+        phone: '***' + formattedPhone.slice(-4),
         reference: payoutData.reference,
       });
 
-      const payload = {
+      // Get Lenco account ID from config or parameter
+      const accountId = payoutData.account_id || config.lencopay.accountId;
+      
+      if (!accountId) {
+        logger.error('Lenco account ID not configured', {
+          reference: payoutData.reference,
+        });
+        return {
+          success: false,
+          message: 'Lenco account ID not configured. Please set LENCOPAY_ACCOUNT_ID environment variable.',
+        };
+      }
+
+      // Build payload according to Lencopay API specification
+      const payload: any = {
+        accountId: accountId, // Required: 36-character account UUID
         amount: payoutData.amount.toString(),
+        narration: 'VibeLinx provider withdrawal',
         reference: payoutData.reference,
         phone: formattedPhone,
         operator: operator,
         country: 'zm',
-        narration: 'VibeLinx provider withdrawal',
       };
 
-      // Lenco uses /payouts/mobile-money endpoint for disbursements
-      const response = await this.client.post('/payouts/mobile-money', payload);
-
-      logger.info('Lenco payout response', {
-        reference: payoutData.reference,
-        status: response.data.status,
-        data: response.data.data,
+      logger.info('Lenco transfer payload prepared', {
+        endpoint: '/transfers/mobile-money',
+        hasAccountId: !!payoutData.account_id,
+        operator,
+        country: 'zm',
       });
 
-      if (response.data.status === true || response.data.data) {
-        const payoutData = response.data.data || {};
+      // POST /transfers/mobile-money - Lencopay official endpoint
+      const response = await this.client.post('/transfers/mobile-money', payload);
+
+      logger.info('Lenco transfer response received', {
+        reference: payoutData.reference,
+        status: response.data.status,
+        transferStatus: response.data.data?.status,
+        lencoReference: response.data.data?.lencoReference,
+      });
+
+      // Lencopay returns: { status: boolean, message: string, data: {...} }
+      if (response.data.status === true && response.data.data) {
+        const transferData = response.data.data;
         
         return {
           success: true,
-          message: 'Payout initiated successfully',
+          message: response.data.message || 'Transfer initiated successfully',
           data: {
-            ...payoutData,
-            lencoReference: payoutData.lencoReference,
-            status: payoutData.status,
-            operator: payoutData.mobileMoneyDetails?.operator,
+            id: transferData.id,
+            lencoReference: transferData.lencoReference,
+            reference: transferData.reference,
+            status: transferData.status, // 'pending' | 'successful' | 'failed'
+            amount: transferData.amount,
+            fee: transferData.fee,
+            currency: transferData.currency,
+            initiatedAt: transferData.initiatedAt,
+            completedAt: transferData.completedAt,
+            creditAccount: transferData.creditAccount,
+            reasonForFailure: transferData.reasonForFailure,
           },
         };
       } else {
-        logger.warn('Lenco payout initiation returned non-success', {
+        logger.warn('Lenco transfer initiation returned non-success', {
           status: response.data.status,
           message: response.data.message,
         });
         
         return {
           success: false,
-          message: response.data.message || 'Payout initiation failed',
+          message: response.data.message || 'Transfer initiation failed',
           data: response.data,
         };
       }
     } catch (error: any) {
-      logger.error('Failed to initiate payout', {
+      logger.error('Failed to initiate transfer', {
         error: error.message,
         reference: payoutData.reference,
-        response: error.response?.data,
+        statusCode: error.response?.status,
+        statusText: error.response?.statusText,
+        responseData: error.response?.data,
+        url: error.config?.url,
+        method: error.config?.method,
       });
+      
+      // Provide helpful error message based on Lencopay response
+      let errorMessage = 'Transfer initiation failed';
+      
+      if (error.response?.status === 400) {
+        // Bad request - validation error
+        errorMessage = error.response.data?.message || 'Invalid transfer request. Please check phone number and operator.';
+      } else if (error.response?.status === 401) {
+        errorMessage = 'Lencopay authentication failed. Please check API credentials.';
+      } else if (error.response?.status === 404) {
+        errorMessage = 'Lencopay transfer endpoint not found. Please verify API configuration.';
+      } else if (error.response?.status === 403) {
+        errorMessage = 'Insufficient permissions or insufficient balance in Lenco account.';
+      } else if (error.response?.data?.message) {
+        errorMessage = error.response.data.message;
+      }
+      
       return {
         success: false,
-        message: error.response?.data?.message || 'Payout initiation failed',
+        message: errorMessage,
+        error: error.response?.data,
       };
     }
   }
 
   async verifyPayout(reference: string): Promise<any> {
     try {
-      const response = await this.client.get(`/payouts/${reference}`);
+      // GET /transfers/status/:reference - Lencopay official endpoint
+      const response = await this.client.get(`/transfers/status/${reference}`);
 
-      logger.info('Payout verification completed', {
+      logger.info('Transfer verification completed', {
         reference,
         status: response.data.data?.status,
         amount: response.data.data?.amount,
+        completedAt: response.data.data?.completedAt,
       });
 
-      if (response.data.status) {
-        const payoutData = response.data.data;
+      if (response.data.status && response.data.data) {
+        const transferData = response.data.data;
         
         return {
           success: true,
-          status: payoutData.status,
-          amount: parseFloat(payoutData.amount),
-          message: `Payout status: ${payoutData.status}`,
+          status: transferData.status, // 'pending' | 'successful' | 'failed'
+          amount: parseFloat(transferData.amount),
+          fee: parseFloat(transferData.fee || '0'),
+          message: `Transfer status: ${transferData.status}`,
           data: {
-            lencoReference: payoutData.lencoReference,
-            completedAt: payoutData.completedAt,
-            operator: payoutData.mobileMoneyDetails?.operator,
-            operatorTransactionId: payoutData.mobileMoneyDetails?.operatorTransactionId,
+            id: transferData.id,
+            lencoReference: transferData.lencoReference,
+            reference: transferData.reference,
+            initiatedAt: transferData.initiatedAt,
+            completedAt: transferData.completedAt,
+            creditAccount: transferData.creditAccount,
+            reasonForFailure: transferData.reasonForFailure,
+            currency: transferData.currency,
           },
         };
       } else {
         return {
           success: false,
-          status: 'failed',
-          message: response.data.message || 'Payout verification failed',
+          status: 'unknown',
+          message: response.data.message || 'Transfer verification failed',
         };
       }
     } catch (error: any) {
-      logger.error('Failed to verify payout', {
+      logger.error('Failed to verify transfer', {
         error: error.message,
         reference,
-        response: error.response?.data,
+        statusCode: error.response?.status,
+        responseData: error.response?.data,
       });
+      
+      // Handle 404 - transfer not found
+      if (error.response?.status === 404) {
+        return {
+          success: false,
+          status: 'not_found',
+          message: 'Transfer not found with the provided reference',
+        };
+      }
+      
       return {
         success: false,
-        status: 'failed',
-        message: error.response?.data?.message || 'Payout verification failed',
+        status: 'error',
+        message: error.response?.data?.message || 'Transfer verification failed',
       };
     }
   }
