@@ -36,7 +36,7 @@ class LencopayService {
         'Authorization': `Bearer ${this.apiKey}`,
         'accept': 'application/json',
       },
-      timeout: 30000,
+      timeout: 60000, // 60 seconds - transfers can take time
     });
 
     // Add request interceptor for logging

@@ -172,7 +172,7 @@ class WithdrawalService {
     }
   }
 
-  async processWithdrawal(withdrawalId: string): Promise<{ success: boolean; error: any }> {
+  async processWithdrawal(withdrawalId: string): Promise<{ success: boolean; error: any; timeout?: boolean }> {
     try {
       logger.info('Processing withdrawal', { withdrawalId });
 
@@ -230,18 +230,46 @@ class WithdrawalService {
       });
 
       if (!payoutResult.success) {
-        logger.error('Lencopay payout failed', { error: payoutResult.message });
+        const isTimeout = payoutResult.message?.includes('timeout') || payoutResult.error?.code === 'ECONNABORTED';
         
-        // Refund to wallet
-        await walletService.creditWallet({
-          wallet_id: withdrawal.wallet_id,
-          amount: withdrawal.amount,
-          transaction_id: withdrawalId,
-          description: 'Withdrawal failed - refunded',
-        });
+        if (isTimeout) {
+          // Timeout - transfer may still succeed, wait for webhook
+          logger.warn('Lencopay transfer timeout - waiting for webhook confirmation', {
+            withdrawalId,
+            reference: withdrawal.lenco_reference,
+          });
+          
+          // Keep status as 'processing' - webhook will update it
+          await this.supabase
+            .from('withdrawal_requests')
+            .update({
+              status: 'processing',
+              metadata: {
+                timeout: true,
+                timeout_at: new Date().toISOString(),
+                message: 'Transfer initiated but response timed out. Awaiting webhook confirmation.',
+              },
+              updated_at: new Date().toISOString(),
+            })
+            .eq('id', withdrawalId);
+          
+          // Return success - webhook will handle final status
+          return { success: true, error: null, timeout: true };
+        } else {
+          // Actual failure (validation error, insufficient balance, etc.)
+          logger.error('Lencopay payout failed', { error: payoutResult.message });
+          
+          // Refund to wallet only for actual failures
+          await walletService.creditWallet({
+            wallet_id: withdrawal.wallet_id,
+            amount: withdrawal.amount,
+            transaction_id: withdrawalId,
+            description: 'Withdrawal failed - refunded',
+          });
 
-        await this.updateWithdrawalStatus(withdrawalId, 'failed', payoutResult.message);
-        return { success: false, error: new Error(payoutResult.message) };
+          await this.updateWithdrawalStatus(withdrawalId, 'failed', payoutResult.message);
+          return { success: false, error: new Error(payoutResult.message) };
+        }
       }
 
       // Update withdrawal with Lenco details
