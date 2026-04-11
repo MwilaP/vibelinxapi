@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import { withdrawalService } from '../services/withdrawal.service';
 import { walletService } from '../services/wallet.service';
 import { payoutMethodService } from '../services/payoutMethod.service';
+import { settingsService } from '../services/settings.service';
 import { logger } from '../utils/logger';
 
 export class WithdrawalController {
@@ -203,10 +204,11 @@ export class WithdrawalController {
         return;
       }
 
-      if (amountNum < 50) {
+      const minWithdrawalAmount = await settingsService.getMinWithdrawalAmount();
+      if (amountNum < minWithdrawalAmount) {
         res.status(400).json({
           success: false,
-          message: 'Minimum withdrawal amount is K50',
+          message: `Minimum withdrawal amount is K${minWithdrawalAmount}`,
         });
         return;
       }

@@ -11,6 +11,7 @@ import testRoutes from './routes/test.routes';
 import subscriptionRoutes from './routes/subscription.routes';
 import withdrawalRoutes from './routes/withdrawal.routes';
 import payoutMethodRoutes from './routes/payoutMethod.routes';
+import settingsRoutes from './routes/settings.routes';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler';
 
 const app: Application = express();
@@ -36,6 +37,7 @@ app.use('/api/payments', paymentRoutes);
 app.use('/api/bookings', bookingRoutes);
 app.use('/api/wallet', walletRoutes);
 app.use('/api/admin', adminRoutes);
+app.use('/api/admin/settings', settingsRoutes);
 app.use('/api/test', testRoutes);
 app.use('/api/subscriptions', subscriptionRoutes);
 app.use('/api/withdrawal', withdrawalRoutes);

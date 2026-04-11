@@ -141,20 +141,41 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql IMMUTABLE;
 
--- Function to get subscription price
+-- Function to get subscription price (now uses system_settings)
 CREATE OR REPLACE FUNCTION public.get_subscription_price(p_plan_type TEXT)
 RETURNS DECIMAL AS $$
+DECLARE
+  v_setting_key TEXT;
+  v_price DECIMAL;
 BEGIN
+  -- Determine setting key based on plan type
   CASE p_plan_type
     WHEN 'monthly' THEN
-      RETURN 50.00;
+      v_setting_key := 'monthly_subscription_fee';
     WHEN 'annual' THEN
-      RETURN 500.00;
+      v_setting_key := 'annual_subscription_fee';
     ELSE
       RAISE EXCEPTION 'Invalid plan type: %', p_plan_type;
   END CASE;
+  
+  -- Get price from system_settings
+  SELECT (setting_value)::text::decimal INTO v_price
+  FROM public.system_settings
+  WHERE setting_key = v_setting_key;
+  
+  -- Return price or fallback to defaults if not found
+  IF v_price IS NULL THEN
+    CASE p_plan_type
+      WHEN 'monthly' THEN
+        RETURN 50.00;
+      WHEN 'annual' THEN
+        RETURN 500.00;
+    END CASE;
+  END IF;
+  
+  RETURN v_price;
 END;
-$$ LANGUAGE plpgsql IMMUTABLE;
+$$ LANGUAGE plpgsql STABLE;
 
 -- Secure function to purchase subscription with wallet
 CREATE OR REPLACE FUNCTION public.purchase_subscription_with_wallet(

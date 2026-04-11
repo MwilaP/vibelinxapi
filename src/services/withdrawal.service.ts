@@ -3,6 +3,7 @@ import { config } from '../config';
 import { logger } from '../utils/logger';
 import { walletService } from './wallet.service';
 import { lencopayService } from './lencopay.service';
+import { settingsService } from './settings.service';
 
 interface CreateWithdrawalRequest {
   user_id: string;
@@ -75,11 +76,12 @@ class WithdrawalService {
         paymentMethod: data.payment_method,
       });
 
-      // Validate minimum withdrawal amount
-      if (data.amount < 50) {
+      // Validate minimum withdrawal amount (dynamic from settings)
+      const minWithdrawalAmount = await settingsService.getMinWithdrawalAmount();
+      if (data.amount < minWithdrawalAmount) {
         return { 
           withdrawal: null, 
-          error: { message: 'Minimum withdrawal amount is K50', code: 'MIN_AMOUNT_ERROR' }
+          error: { message: `Minimum withdrawal amount is K${minWithdrawalAmount}`, code: 'MIN_AMOUNT_ERROR' }
         };
       }
 
