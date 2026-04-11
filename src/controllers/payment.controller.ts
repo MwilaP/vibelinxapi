@@ -3,6 +3,7 @@ import { lencopayService } from '../services/lencopay.service';
 import { bookingService } from '../services/booking.service';
 import { transactionService } from '../services/transaction.service';
 import { walletService } from '../services/wallet.service';
+import { withdrawalService } from '../services/withdrawal.service';
 import { PaymentInitiationRequest, PaymentCallbackData } from '../types';
 import { logger } from '../utils/logger';
 
@@ -411,6 +412,39 @@ export class PaymentController {
           event: webhookEvent.event,
           transactionId: transaction.id,
           transactionType: transaction.transaction_type,
+        });
+      } else if (webhookEvent.event === 'payout.successful' || webhookEvent.event === 'payout.completed') {
+        const payoutData = webhookEvent.data;
+        
+        logger.info('Processing successful payout', {
+          event: webhookEvent.event,
+          reference: payoutData.reference,
+          amount: payoutData.amount,
+        });
+
+        // Handle payout webhook
+        await withdrawalService.handlePayoutWebhook({
+          reference: payoutData.reference,
+          status: 'successful',
+          externalTransactionId: payoutData.mobileMoneyDetails?.operatorTransactionId,
+        });
+
+        logger.info('Payout webhook processed successfully', {
+          reference: payoutData.reference,
+        });
+      } else if (webhookEvent.event === 'payout.failed') {
+        const payoutData = webhookEvent.data;
+        
+        logger.warn('Payout failed webhook received', {
+          reference: payoutData.reference,
+          reason: payoutData.reasonForFailure,
+        });
+
+        // Handle payout failure
+        await withdrawalService.handlePayoutWebhook({
+          reference: payoutData.reference,
+          status: 'failed',
+          failureReason: payoutData.reasonForFailure,
         });
       } else if (webhookEvent.event === 'collection.settled' || 
                  webhookEvent.event === 'transaction.credit') {

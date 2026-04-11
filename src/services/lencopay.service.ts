@@ -354,6 +354,125 @@ class LencopayService {
       };
     }
   }
+
+  async initiatePayout(payoutData: {
+    amount: number;
+    payment_method: string;
+    payment_phone: string;
+    reference: string;
+  }): Promise<any> {
+    try {
+      const formattedPhone = this.formatPhoneNumber(payoutData.payment_phone);
+      const operator = payoutData.payment_method;
+
+      logger.info('Initiating Lenco payout', {
+        amount: payoutData.amount,
+        operator,
+        phone: formattedPhone,
+        reference: payoutData.reference,
+      });
+
+      const payload = {
+        amount: payoutData.amount.toString(),
+        reference: payoutData.reference,
+        phone: formattedPhone,
+        operator: operator,
+        country: 'zm',
+        narration: 'VibeLinx provider withdrawal',
+      };
+
+      // Lenco uses /payouts/mobile-money endpoint for disbursements
+      const response = await this.client.post('/payouts/mobile-money', payload);
+
+      logger.info('Lenco payout response', {
+        reference: payoutData.reference,
+        status: response.data.status,
+        data: response.data.data,
+      });
+
+      if (response.data.status === true || response.data.data) {
+        const payoutData = response.data.data || {};
+        
+        return {
+          success: true,
+          message: 'Payout initiated successfully',
+          data: {
+            ...payoutData,
+            lencoReference: payoutData.lencoReference,
+            status: payoutData.status,
+            operator: payoutData.mobileMoneyDetails?.operator,
+          },
+        };
+      } else {
+        logger.warn('Lenco payout initiation returned non-success', {
+          status: response.data.status,
+          message: response.data.message,
+        });
+        
+        return {
+          success: false,
+          message: response.data.message || 'Payout initiation failed',
+          data: response.data,
+        };
+      }
+    } catch (error: any) {
+      logger.error('Failed to initiate payout', {
+        error: error.message,
+        reference: payoutData.reference,
+        response: error.response?.data,
+      });
+      return {
+        success: false,
+        message: error.response?.data?.message || 'Payout initiation failed',
+      };
+    }
+  }
+
+  async verifyPayout(reference: string): Promise<any> {
+    try {
+      const response = await this.client.get(`/payouts/${reference}`);
+
+      logger.info('Payout verification completed', {
+        reference,
+        status: response.data.data?.status,
+        amount: response.data.data?.amount,
+      });
+
+      if (response.data.status) {
+        const payoutData = response.data.data;
+        
+        return {
+          success: true,
+          status: payoutData.status,
+          amount: parseFloat(payoutData.amount),
+          message: `Payout status: ${payoutData.status}`,
+          data: {
+            lencoReference: payoutData.lencoReference,
+            completedAt: payoutData.completedAt,
+            operator: payoutData.mobileMoneyDetails?.operator,
+            operatorTransactionId: payoutData.mobileMoneyDetails?.operatorTransactionId,
+          },
+        };
+      } else {
+        return {
+          success: false,
+          status: 'failed',
+          message: response.data.message || 'Payout verification failed',
+        };
+      }
+    } catch (error: any) {
+      logger.error('Failed to verify payout', {
+        error: error.message,
+        reference,
+        response: error.response?.data,
+      });
+      return {
+        success: false,
+        status: 'failed',
+        message: error.response?.data?.message || 'Payout verification failed',
+      };
+    }
+  }
 }
 
 export const lencopayService = new LencopayService();

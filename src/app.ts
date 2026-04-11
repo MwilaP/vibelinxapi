@@ -9,6 +9,8 @@ import walletRoutes from './routes/wallet.routes';
 import adminRoutes from './routes/admin.routes';
 import testRoutes from './routes/test.routes';
 import subscriptionRoutes from './routes/subscription.routes';
+import withdrawalRoutes from './routes/withdrawal.routes';
+import payoutMethodRoutes from './routes/payoutMethod.routes';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler';
 
 const app: Application = express();
@@ -36,6 +38,8 @@ app.use('/api/wallet', walletRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/test', testRoutes);
 app.use('/api/subscriptions', subscriptionRoutes);
+app.use('/api/withdrawal', withdrawalRoutes);
+app.use('/api/payout-methods', payoutMethodRoutes);
 
 app.use(notFoundHandler);
 app.use(errorHandler);
