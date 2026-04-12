@@ -27,6 +27,10 @@ router.post('/decline', (req, res) =>
   bookingController.declineBooking(req, res)
 );
 
+router.post('/cancel-by-provider', (req, res) => 
+  bookingController.cancelBookingByProvider(req, res)
+);
+
 router.get('/:booking_id', (req, res) => 
   bookingController.getBooking(req, res)
 );
