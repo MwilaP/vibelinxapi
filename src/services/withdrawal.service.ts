@@ -205,8 +205,8 @@ class WithdrawalService {
       // Record withdrawal fee transaction
       await walletService.recordWalletTransaction({
         wallet_id: withdrawal.wallet_id,
-        transaction_type: 'withdrawal',
-        amount: withdrawal.fee_amount,
+        transaction_type: 'withdrawal_fee',
+        amount: -withdrawal.fee_amount,
         balance_before: 0, // Already deducted in main transaction
         balance_after: 0,
         reference_id: withdrawalId,
@@ -271,6 +271,7 @@ class WithdrawalService {
         .from('withdrawal_requests')
         .update({
           lenco_payout_id: payoutResult.data?.payoutId || payoutResult.data?.id,
+          pawapay_payout_id: payoutResult.data?.payoutId || payoutResult.data?.id, // Store PawaPay payout ID
           status: 'processing',
           updated_at: new Date().toISOString(),
         })
@@ -373,19 +374,43 @@ class WithdrawalService {
 
   async handlePayoutWebhook(webhookData: any): Promise<{ success: boolean; error: any }> {
     try {
-      const { reference, status, externalTransactionId } = webhookData;
+      const { reference, status, externalTransactionId, payoutId } = webhookData;
 
-      logger.info('Processing payout webhook', { reference, status });
+      logger.info('Processing payout webhook', { reference, status, payoutId });
 
-      // Find withdrawal by reference
-      const { data: withdrawal, error: fetchError } = await this.supabase
-        .from('withdrawal_requests')
-        .select('*')
-        .eq('lenco_reference', reference)
-        .single();
+      // Find withdrawal by reference or pawapay_payout_id
+      let withdrawal: any = null;
+      let fetchError: any = null;
+
+      // First try to find by reference
+      if (reference) {
+        const result = await this.supabase
+          .from('withdrawal_requests')
+          .select('*')
+          .eq('lenco_reference', reference)
+          .single();
+        
+        withdrawal = result.data;
+        fetchError = result.error;
+      }
+
+      // If not found by reference, try by pawapay_payout_id or externalTransactionId
+      if (!withdrawal && (payoutId || externalTransactionId)) {
+        const searchId = payoutId || externalTransactionId;
+        const result = await this.supabase
+          .from('withdrawal_requests')
+          .select('*')
+          .eq('pawapay_payout_id', searchId)
+          .single();
+        
+        withdrawal = result.data;
+        fetchError = result.error;
+        
+        logger.info('Searched by pawapay_payout_id', { searchId, found: !!withdrawal });
+      }
 
       if (fetchError || !withdrawal) {
-        logger.error('Withdrawal not found for webhook', { reference });
+        logger.error('Withdrawal not found for webhook', { reference, payoutId, externalTransactionId });
         return { success: false, error: fetchError || new Error('Withdrawal not found') };
       }
 

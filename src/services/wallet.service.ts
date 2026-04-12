@@ -227,8 +227,8 @@ class WalletService {
 
       await this.recordWalletTransaction({
         wallet_id: data.wallet_id,
-        transaction_type: 'booking_deduction',
-        amount: data.amount,
+        transaction_type: data.reference_type === 'withdrawal' ? 'withdrawal' : 'booking_deduction',
+        amount: data.reference_type === 'withdrawal' ? -data.amount : data.amount,
         balance_before: balanceBefore,
         balance_after: balanceAfter,
         reference_id: data.reference_id,

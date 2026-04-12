@@ -28,4 +28,12 @@ router.post('/create-booking', (req: Request, res: Response) =>
   paymentController.createBookingWithPayment(req, res)
 );
 
+router.get('/active-config', (req: Request, res: Response) => 
+  paymentController.getActiveConfiguration(req, res)
+);
+
+router.post('/predict-provider', (req: Request, res: Response) => 
+  paymentController.predictProvider(req, res)
+);
+
 export default router;

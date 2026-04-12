@@ -453,6 +453,79 @@ class PawapayService {
       return false;
     }
   }
+
+  async getActiveConfiguration(country?: string, operationType?: 'DEPOSIT' | 'PAYOUT'): Promise<any> {
+    try {
+      const params = new URLSearchParams();
+      if (country) params.append('country', country);
+      if (operationType) params.append('operationType', operationType);
+
+      const url = `/v2/active-conf${params.toString() ? `?${params.toString()}` : ''}`;
+      
+      logger.info('Fetching active configuration', { country, operationType, url });
+
+      const response = await this.client.get(url);
+
+      logger.info('Active configuration fetched successfully', {
+        country,
+        operationType,
+        countriesCount: response.data.countries?.length,
+      });
+
+      return {
+        success: true,
+        data: response.data,
+      };
+    } catch (error: any) {
+      logger.error('Failed to fetch active configuration', {
+        error: error.message,
+        country,
+        operationType,
+        statusCode: error.response?.status,
+        responseData: error.response?.data,
+      });
+
+      return {
+        success: false,
+        message: error.response?.data?.message || 'Failed to fetch active configuration',
+        error: error.response?.data,
+      };
+    }
+  }
+
+  async predictProvider(phoneNumber: string): Promise<any> {
+    try {
+      logger.info('Predicting provider for phone number', {
+        phoneNumber: phoneNumber?.substring(0, 6) + '***',
+      });
+
+      const response = await this.client.post('/v2/predict-provider', {
+        phoneNumber,
+      });
+
+      logger.info('Provider prediction successful', {
+        country: response.data.country,
+        provider: response.data.provider,
+      });
+
+      return {
+        success: true,
+        data: response.data,
+      };
+    } catch (error: any) {
+      logger.error('Failed to predict provider', {
+        error: error.message,
+        statusCode: error.response?.status,
+        responseData: error.response?.data,
+      });
+
+      return {
+        success: false,
+        message: error.response?.data?.message || 'Failed to predict provider',
+        error: error.response?.data,
+      };
+    }
+  }
 }
 
 export const pawapayService = new PawapayService();

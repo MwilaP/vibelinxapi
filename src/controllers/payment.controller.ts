@@ -454,6 +454,7 @@ export class PaymentController {
           reference,
           status: 'successful',
           externalTransactionId: payoutId,
+          payoutId, // Pass payoutId for lookup
         });
 
         logger.info('Payout webhook processed successfully', {
@@ -476,6 +477,7 @@ export class PaymentController {
           reference,
           status: 'failed',
           failureReason: webhookEvent.failureReason?.failureMessage,
+          payoutId, // Pass payoutId for lookup
         });
       } else {
         logger.info('Received webhook with unhandled status', {
@@ -615,6 +617,64 @@ export class PaymentController {
       });
     } catch (error: any) {
       logger.error('Create booking with payment error', {
+        error: error.message,
+      });
+      res.status(500).json({
+        success: false,
+        message: 'Internal server error',
+        error: error.message,
+      });
+    }
+  }
+
+  async getActiveConfiguration(req: Request, res: Response): Promise<void> {
+    try {
+      const { country, operationType } = req.query;
+
+      logger.info('Getting active configuration', {
+        country,
+        operationType,
+      });
+
+      const result = await pawapayService.getActiveConfiguration(
+        country as string,
+        operationType as 'DEPOSIT' | 'PAYOUT'
+      );
+
+      res.status(result.success ? 200 : 400).json(result.data || result);
+    } catch (error: any) {
+      logger.error('Get active configuration error', {
+        error: error.message,
+      });
+      res.status(500).json({
+        success: false,
+        message: 'Internal server error',
+        error: error.message,
+      });
+    }
+  }
+
+  async predictProvider(req: Request, res: Response): Promise<void> {
+    try {
+      const { phoneNumber } = req.body;
+
+      logger.info('Predicting provider', {
+        phoneNumber: phoneNumber?.substring(0, 6) + '***',
+      });
+
+      if (!phoneNumber) {
+        res.status(400).json({
+          success: false,
+          message: 'Phone number is required',
+        });
+        return;
+      }
+
+      const result = await pawapayService.predictProvider(phoneNumber);
+
+      res.status(result.success ? 200 : 400).json(result.data || result);
+    } catch (error: any) {
+      logger.error('Predict provider error', {
         error: error.message,
       });
       res.status(500).json({
