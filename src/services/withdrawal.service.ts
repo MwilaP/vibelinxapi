@@ -15,10 +15,10 @@ interface CreateWithdrawalRequest {
 }
 
 interface WithdrawalFee {
-  min: number;
-  max: number;
-  tier: string;
-  averageFee: number;
+  fee: number;
+  fee_percentage: number;
+  wallet_debit: number;
+  net_payout: number;
 }
 
 class WithdrawalService {
@@ -37,35 +37,26 @@ class WithdrawalService {
     );
   }
 
-  calculateWithdrawalFee(amount: number): WithdrawalFee {
-    if (amount < 0) {
+  calculateWithdrawalFee(payoutAmount: number): WithdrawalFee {
+    if (payoutAmount < 0) {
       throw new Error('Invalid withdrawal amount');
     }
 
-    if (amount >= 0 && amount <= 1000) {
-      return { 
-        min: 8.50, 
-        max: 12, 
-        tier: 'tier_1',
-        averageFee: 10.25 // Use average for calculation
-      };
-    } else if (amount > 1000 && amount <= 50000) {
-      return { 
-        min: 15, 
-        max: 25, 
-        tier: 'tier_2',
-        averageFee: 20 // Use average for calculation
-      };
-    } else if (amount > 50000 && amount <= 100000000) {
-      return { 
-        min: 35, 
-        max: 35, 
-        tier: 'tier_3',
-        averageFee: 35
-      };
-    }
-    
-    throw new Error('Withdrawal amount exceeds maximum limit');
+    // Simple 3% fee calculation
+    // User specifies amount they want to receive (payout_amount)
+    // Fee is added on top: fee = payout_amount * 0.03
+    // Total deducted from wallet: wallet_debit = payout_amount + fee
+    const feePercentage = 0.03; // 3%
+    const fee = Math.round(payoutAmount * feePercentage * 100) / 100; // Round to 2 decimals
+    const walletDebit = payoutAmount + fee;
+    const netPayout = payoutAmount; // User receives exactly what they requested
+
+    return {
+      fee,
+      fee_percentage: 3,
+      wallet_debit: walletDebit,
+      net_payout: netPayout,
+    };
   }
 
   async createWithdrawalRequest(data: CreateWithdrawalRequest): Promise<{ withdrawal: any | null; error: any }> {
@@ -96,19 +87,20 @@ class WithdrawalService {
         return { withdrawal: null, error: new Error('Unauthorized wallet access') };
       }
 
-      // Calculate fees
+      // Calculate fees using new 3% model
+      // data.amount is the payout_amount (what user wants to receive)
       const feeInfo = this.calculateWithdrawalFee(data.amount);
-      const feeAmount = feeInfo.averageFee;
-      const netAmount = data.amount - feeAmount;
-      const totalDeduction = data.amount; // Total to deduct from wallet
+      const feeAmount = feeInfo.fee;
+      const netAmount = feeInfo.net_payout; // Same as data.amount
+      const totalDeduction = feeInfo.wallet_debit; // payout_amount + fee
 
-      // Check if sufficient balance
+      // Check if sufficient balance (must have payout_amount + fee)
       const availableBalance = parseFloat(wallet.available_balance);
       if (availableBalance < totalDeduction) {
         return { 
           withdrawal: null, 
           error: { 
-            message: 'Insufficient balance',
+            message: `Insufficient balance. You need K${totalDeduction.toFixed(2)} but have K${availableBalance.toFixed(2)}`,
             code: 'INSUFFICIENT_BALANCE',
             required: totalDeduction,
             available: availableBalance
@@ -125,18 +117,18 @@ class WithdrawalService {
         .insert({
           wallet_id: data.wallet_id,
           user_id: data.user_id,
-          amount: data.amount,
-          fee_amount: feeAmount,
-          net_amount: netAmount,
-          fee_tier: feeInfo.tier,
+          amount: data.amount, // payout_amount (what user receives)
+          fee_amount: feeAmount, // 3% fee
+          net_amount: netAmount, // same as amount (what user receives)
+          fee_tier: null, // No longer using tiers
           payment_method: data.payment_method,
           payment_phone: data.payment_phone,
           lenco_reference: reference,
           status: 'pending',
           metadata: {
-            fee_min: feeInfo.min,
-            fee_max: feeInfo.max,
-            fee_tier: feeInfo.tier,
+            fee_percentage: 3,
+            wallet_debit: totalDeduction,
+            payout_model: 'fee_on_top', // New model identifier
           }
         })
         .select()
@@ -194,13 +186,14 @@ class WithdrawalService {
       // Update status to processing
       await this.updateWithdrawalStatus(withdrawalId, 'processing');
 
-      // Deduct from wallet first (total amount including fee)
+      // Deduct from wallet first (payout_amount + fee)
+      const walletDebitAmount = withdrawal.amount + withdrawal.fee_amount;
       const deductResult = await walletService.deductFromWallet({
         wallet_id: withdrawal.wallet_id,
-        amount: withdrawal.amount, // Deduct full requested amount
+        amount: walletDebitAmount, // Deduct payout_amount + fee
         reference_id: withdrawalId,
         reference_type: 'withdrawal',
-        description: `Withdrawal request - K${withdrawal.net_amount.toFixed(2)} (Fee: K${withdrawal.fee_amount.toFixed(2)})`,
+        description: `Withdrawal - You'll receive K${withdrawal.amount.toFixed(2)} (Fee: K${withdrawal.fee_amount.toFixed(2)})`,
       });
 
       if (!deductResult.success) {
@@ -218,12 +211,12 @@ class WithdrawalService {
         balance_after: 0,
         reference_id: withdrawalId,
         reference_type: 'withdrawal',
-        description: `Withdrawal fee (${withdrawal.fee_tier})`,
+        description: `Withdrawal fee (3%)`,
       });
 
-      // Initiate PawaPay payout
+      // Initiate PawaPay payout (send the amount user wants to receive)
       const payoutResult = await pawapayService.initiatePayout({
-        amount: withdrawal.net_amount,
+        amount: withdrawal.amount, // Send payout_amount (what user receives)
         payment_method: withdrawal.payment_method,
         payment_phone: withdrawal.payment_phone,
         reference: withdrawal.lenco_reference,
@@ -259,10 +252,11 @@ class WithdrawalService {
           // Actual failure (validation error, insufficient balance, etc.)
           logger.error('PawaPay payout failed', { error: payoutResult.message });
           
-          // Refund to wallet only for actual failures
+          // Refund to wallet only for actual failures (refund full wallet_debit)
+          const refundAmount = withdrawal.amount + withdrawal.fee_amount;
           await walletService.creditWallet({
             wallet_id: withdrawal.wallet_id,
-            amount: withdrawal.amount,
+            amount: refundAmount,
             transaction_id: withdrawalId,
             description: 'Withdrawal failed - refunded',
           });
@@ -403,18 +397,19 @@ class WithdrawalService {
           externalTransactionId
         );
         
-        // Update wallet total_withdrawn
+        // Update wallet total_withdrawn (track what user actually received)
         await this.supabase.rpc('increment_total_withdrawn', {
           p_wallet_id: withdrawal.wallet_id,
-          p_amount: withdrawal.net_amount
+          p_amount: withdrawal.amount // User received this amount
         });
 
         logger.info('Withdrawal completed successfully', { withdrawalId: withdrawal.id });
       } else if (status === 'failed') {
-        // Refund to wallet
+        // Refund to wallet (refund full wallet_debit: payout_amount + fee)
+        const refundAmount = withdrawal.amount + withdrawal.fee_amount;
         await walletService.creditWallet({
           wallet_id: withdrawal.wallet_id,
-          amount: withdrawal.amount,
+          amount: refundAmount,
           transaction_id: withdrawal.id,
           description: 'Withdrawal failed - refunded',
         });

@@ -124,12 +124,14 @@ export class PaymentController {
         return;
       }
 
-      // Update transaction with PawaPay's deposit ID
-      if (result.data?.depositId || result.data?.id) {
+      // Update transaction with PawaPay's deposit ID and status
+      if (result.data?.depositId) {
         await transactionService.updateTransactionStatus(
           transaction.id,
           'pending',
-          result.data?.status || 'pending'
+          result.data?.status || 'pending',
+          undefined, // errorMessage
+          result.data.depositId // pawapayDepositId
         );
       }
 
@@ -301,18 +303,21 @@ export class PaymentController {
           depositId,
           reference,
           amount: webhookEvent.amount,
+          fullWebhook: webhookEvent,
         });
 
-        // Find transaction by reference
-        const { transaction, error: txError } = await transactionService.getTransactionByReference(
-          reference
+        // Find transaction by depositId (stored in reference_number during initiation)
+        const { transaction, error: txError } = await transactionService.getTransactionByDepositId(
+          depositId
         );
 
         if (txError || !transaction) {
           logger.error('Transaction not found for webhook', {
+            depositId,
             reference,
             error: txError,
           });
+          // Still return 200 to acknowledge webhook receipt
           res.status(200).json({ success: true });
           return;
         }

@@ -95,16 +95,20 @@ export class WalletController {
         return;
       }
 
+      // Update transaction with PawaPay deposit ID and status
       await transactionService.updateTransactionStatus(
         transaction.id,
         'pending',
-        paymentResult.data?.status || 'pending'
+        paymentResult.data?.status || 'pending',
+        undefined, // errorMessage
+        paymentResult.data?.depositId // pawapayDepositId
       );
 
       logger.info('Wallet deposit initiated successfully', {
         transactionId: transaction.id,
         walletId: wallet.id,
         amount,
+        depositId: paymentResult.data?.depositId,
       });
 
       res.status(200).json({

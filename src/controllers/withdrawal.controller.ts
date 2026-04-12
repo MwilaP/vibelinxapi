@@ -214,18 +214,15 @@ export class WithdrawalController {
       }
 
       const feeInfo = withdrawalService.calculateWithdrawalFee(amountNum);
-      const netAmount = amountNum - feeInfo.averageFee;
 
       res.status(200).json({
         success: true,
         data: {
-          requested_amount: amountNum,
-          fee_min: feeInfo.min,
-          fee_max: feeInfo.max,
-          fee_average: feeInfo.averageFee,
-          fee_tier: feeInfo.tier,
-          net_amount: netAmount,
-          total_deduction: amountNum,
+          payout_amount: amountNum, // What user wants to receive
+          fee: feeInfo.fee, // 3% fee
+          fee_percentage: feeInfo.fee_percentage, // 3
+          wallet_debit: feeInfo.wallet_debit, // payout_amount + fee
+          net_payout: feeInfo.net_payout, // Same as payout_amount
         },
       });
     } catch (error: any) {

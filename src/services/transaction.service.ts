@@ -80,13 +80,15 @@ class TransactionService {
     transactionId: string,
     status: 'pending' | 'processing' | 'completed' | 'failed' | 'cancelled',
     externalStatus?: string,
-    errorMessage?: string
+    errorMessage?: string,
+    pawapayDepositId?: string
   ): Promise<{ error: any }> {
     try {
       logger.info('Attempting to update transaction status', {
         transactionId,
         newStatus: status,
         externalStatus,
+        pawapayDepositId,
       });
 
       const updates: any = {
@@ -97,6 +99,10 @@ class TransactionService {
 
       if (errorMessage) {
         updates.error_message = errorMessage;
+      }
+
+      if (pawapayDepositId) {
+        updates.pawapay_deposit_id = pawapayDepositId;
       }
 
       const { data, error } = await this.supabase
@@ -259,6 +265,53 @@ class TransactionService {
       return { transaction, error: null };
     } catch (error) {
       logger.error('Unexpected error fetching transaction:', error);
+      return { transaction: null, error };
+    }
+  }
+
+  async updatePawapayDepositId(transactionId: string, depositId: string): Promise<{ error: any }> {
+    try {
+      const { error } = await this.supabase
+        .from('transactions')
+        .update({
+          pawapay_deposit_id: depositId,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', transactionId);
+
+      if (error) {
+        logger.error('Error updating pawapay_deposit_id:', error);
+        return { error };
+      }
+
+      logger.info('PawaPay deposit ID updated', {
+        transactionId,
+        depositId,
+      });
+
+      return { error: null };
+    } catch (error) {
+      logger.error('Unexpected error updating pawapay_deposit_id:', error);
+      return { error };
+    }
+  }
+
+  async getTransactionByDepositId(depositId: string): Promise<{ transaction: any | null; error: any }> {
+    try {
+      const { data: transaction, error } = await this.supabase
+        .from('transactions')
+        .select('*')
+        .eq('pawapay_deposit_id', depositId)
+        .single();
+
+      if (error) {
+        logger.error('Error fetching transaction by deposit ID:', error);
+        return { transaction: null, error };
+      }
+
+      return { transaction, error: null };
+    } catch (error) {
+      logger.error('Unexpected error fetching transaction by deposit ID:', error);
       return { transaction: null, error };
     }
   }
