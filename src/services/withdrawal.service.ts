@@ -2,7 +2,7 @@ import { createClient } from '@supabase/supabase-js';
 import { config } from '../config';
 import { logger } from '../utils/logger';
 import { walletService } from './wallet.service';
-import { lencopayService } from './lencopay.service';
+import { pawapayService } from './pawapay.service';
 import { settingsService } from './settings.service';
 
 interface CreateWithdrawalRequest {
@@ -221,8 +221,8 @@ class WithdrawalService {
         description: `Withdrawal fee (${withdrawal.fee_tier})`,
       });
 
-      // Initiate Lencopay payout
-      const payoutResult = await lencopayService.initiatePayout({
+      // Initiate PawaPay payout
+      const payoutResult = await pawapayService.initiatePayout({
         amount: withdrawal.net_amount,
         payment_method: withdrawal.payment_method,
         payment_phone: withdrawal.payment_phone,
@@ -234,7 +234,7 @@ class WithdrawalService {
         
         if (isTimeout) {
           // Timeout - transfer may still succeed, wait for webhook
-          logger.warn('Lencopay transfer timeout - waiting for webhook confirmation', {
+          logger.warn('PawaPay transfer timeout - waiting for webhook confirmation', {
             withdrawalId,
             reference: withdrawal.lenco_reference,
           });
@@ -257,7 +257,7 @@ class WithdrawalService {
           return { success: true, error: null, timeout: true };
         } else {
           // Actual failure (validation error, insufficient balance, etc.)
-          logger.error('Lencopay payout failed', { error: payoutResult.message });
+          logger.error('PawaPay payout failed', { error: payoutResult.message });
           
           // Refund to wallet only for actual failures
           await walletService.creditWallet({
@@ -272,11 +272,11 @@ class WithdrawalService {
         }
       }
 
-      // Update withdrawal with Lenco details
+      // Update withdrawal with PawaPay details
       await this.supabase
         .from('withdrawal_requests')
         .update({
-          lenco_payout_id: payoutResult.data?.id || payoutResult.data?.lencoReference,
+          lenco_payout_id: payoutResult.data?.payoutId || payoutResult.data?.id,
           status: 'processing',
           updated_at: new Date().toISOString(),
         })
@@ -284,7 +284,7 @@ class WithdrawalService {
 
       logger.info('Withdrawal processing initiated', {
         withdrawalId,
-        lencoPayoutId: payoutResult.data?.id,
+        pawapayPayoutId: payoutResult.data?.payoutId,
       });
 
       return { success: true, error: null };

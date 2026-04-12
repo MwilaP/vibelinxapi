@@ -2,7 +2,7 @@ import { Request, Response } from 'express';
 import { walletService } from '../services/wallet.service';
 import { escrowService } from '../services/escrow.service';
 import { transactionService } from '../services/transaction.service';
-import { lencopayService } from '../services/lencopay.service';
+import { pawapayService } from '../services/pawapay.service';
 import { logger } from '../utils/logger';
 
 export class WalletController {
@@ -70,7 +70,7 @@ export class WalletController {
 
       await transactionService.updateTransactionReference(transaction.id, lencoReference);
 
-      const paymentResult = await lencopayService.initiatePayment({
+      const paymentResult = await pawapayService.initiateDeposit({
         amount,
         currency: 'ZMW',
         payment_method,

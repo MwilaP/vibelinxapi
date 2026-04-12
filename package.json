@@ -1,7 +1,7 @@
 {
   "name": "vibelinx-payment-api",
   "version": "1.0.0",
-  "description": "Payment API for VibeLinx using Lencopay and booking notifications via African's Talking",
+  "description": "Payment API for VibeLinx using PawaPay and booking notifications via African's Talking",
   "main": "dist/server.js",
   "scripts": {
     "dev": "nodemon src/server.ts",
@@ -9,7 +9,7 @@
     "start": "node dist/server.js",
     "test": "jest"
   },
-  "keywords": ["payment", "lencopay", "africastalking", "booking"],
+  "keywords": ["payment", "pawapay", "africastalking", "booking"],
   "author": "",
   "license": "MIT",
   "dependencies": {

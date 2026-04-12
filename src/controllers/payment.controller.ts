@@ -1,5 +1,5 @@
 import { Request, Response } from 'express';
-import { lencopayService } from '../services/lencopay.service';
+import { pawapayService } from '../services/pawapay.service';
 import { bookingService } from '../services/booking.service';
 import { transactionService } from '../services/transaction.service';
 import { walletService } from '../services/wallet.service';
@@ -90,8 +90,8 @@ export class PaymentController {
         lencoReference,
       });
 
-      // Now initiate payment with Lenco using transaction ID as reference
-      const result = await lencopayService.initiatePayment({
+      // Now initiate payment with PawaPay using transaction ID as reference
+      const result = await pawapayService.initiateDeposit({
         ...paymentData,
         reference: lencoReference, // Use transaction-based reference
       });
@@ -105,7 +105,7 @@ export class PaymentController {
           result.message
         );
         
-        logger.error('Lenco payment initiation failed', {
+        logger.error('PawaPay payment initiation failed', {
           transactionId: transaction.id,
           lencoReference,
           error: result.message,
@@ -124,8 +124,8 @@ export class PaymentController {
         return;
       }
 
-      // Update transaction with Lenco's internal ID
-      if (result.data?.lencoReference || result.data?.id) {
+      // Update transaction with PawaPay's deposit ID
+      if (result.data?.depositId || result.data?.id) {
         await transactionService.updateTransactionStatus(
           transaction.id,
           'pending',
@@ -136,8 +136,8 @@ export class PaymentController {
       logger.info('Payment initiated successfully', {
         transactionId: transaction.id,
         lencoReference,
-        lencoInternalId: result.data?.lencoReference,
-        lencoStatus: result.data?.status,
+        pawapayDepositId: result.data?.depositId,
+        pawapayStatus: result.data?.pawapayStatus,
       });
 
       res.status(200).json({
@@ -194,8 +194,8 @@ export class PaymentController {
         return;
       }
 
-      // Verify payment using the Lenco reference
-      const result = await lencopayService.verifyPayment(transaction.reference_number);
+      // Verify payment using the PawaPay deposit ID
+      const result = await pawapayService.checkDepositStatus(transaction.reference_number);
 
       res.status(result.success ? 200 : 400).json(result);
     } catch (error: any) {
@@ -240,8 +240,8 @@ export class PaymentController {
         return;
       }
 
-      // Verify payment status with Lenco
-      const paymentVerification = await lencopayService.verifyPayment(transaction.reference_number);
+      // Verify payment status with PawaPay
+      const paymentVerification = await pawapayService.checkDepositStatus(transaction.reference_number);
 
       // Build response with transaction and booking info
       const response: any = {
@@ -280,39 +280,37 @@ export class PaymentController {
   async handleCallback(req: Request, res: Response): Promise<void> {
     try {
       const webhookEvent = req.body;
-      const signature = req.headers['x-lenco-signature'] as string;
 
-      logger.info('Received Lenco webhook', { event: webhookEvent.event });
+      logger.info('Received PawaPay webhook', { 
+        depositId: webhookEvent.depositId,
+        payoutId: webhookEvent.payoutId,
+        status: webhookEvent.status,
+        correspondentIds: webhookEvent.correspondentIds,
+      });
 
-      if (!signature || !lencopayService.validateCallback(webhookEvent, signature)) {
-        logger.warn('Invalid webhook signature', {
-          hasSignature: !!signature,
-          event: webhookEvent.event,
-        });
-        res.status(401).json({
-          success: false,
-          message: 'Invalid signature',
-        });
-        return;
-      }
+      // PawaPay webhooks don't require signature validation by default
+      // If you enable signed webhooks in PawaPay dashboard, add validation here
 
-      if (webhookEvent.event === 'collection.successful') {
-        const collectionData = webhookEvent.data;
+      // Handle deposit webhooks
+      if (webhookEvent.depositId && webhookEvent.status === 'COMPLETED') {
+        const depositId = webhookEvent.depositId;
+        const correspondentIds = webhookEvent.correspondentIds || {};
+        const reference = correspondentIds.MERCHANT_TRANSACTION_REFERENCE;
         
-        logger.info('Processing successful collection', {
-          event: webhookEvent.event,
-          reference: collectionData.reference,
-          amount: collectionData.amount,
+        logger.info('Processing completed deposit', {
+          depositId,
+          reference,
+          amount: webhookEvent.amount,
         });
 
         // Find transaction by reference
         const { transaction, error: txError } = await transactionService.getTransactionByReference(
-          collectionData.reference
+          reference
         );
 
         if (txError || !transaction) {
           logger.error('Transaction not found for webhook', {
-            reference: collectionData.reference,
+            reference,
             error: txError,
           });
           res.status(200).json({ success: true });
@@ -323,12 +321,12 @@ export class PaymentController {
         await transactionService.updateTransactionStatus(
           transaction.id,
           'completed',
-          collectionData.status
+          'COMPLETED'
         );
 
         logger.info('Transaction status updated to completed', {
           transactionId: transaction.id,
-          event: webhookEvent.event,
+          depositId,
         });
 
         // Check if this is a wallet deposit transaction
@@ -336,17 +334,17 @@ export class PaymentController {
           logger.info('Processing wallet deposit', {
             transactionId: transaction.id,
             walletId: transaction.metadata.wallet_id,
-            amount: collectionData.amount,
+            amount: webhookEvent.amount,
           });
 
           const creditResult = await walletService.creditWallet({
             wallet_id: transaction.metadata.wallet_id,
-            amount: parseFloat(collectionData.amount),
+            amount: parseFloat(webhookEvent.amount),
             transaction_id: transaction.id,
             description: 'Wallet deposit via mobile money',
             metadata: {
               payment_method: transaction.payment_method,
-              external_transaction_id: collectionData.lencoReference,
+              external_transaction_id: depositId,
             },
           });
 
@@ -360,7 +358,7 @@ export class PaymentController {
             logger.info('Wallet credited successfully', {
               transactionId: transaction.id,
               walletId: transaction.metadata.wallet_id,
-              amount: collectionData.amount,
+              amount: webhookEvent.amount,
             });
           }
         }
@@ -403,80 +401,83 @@ export class PaymentController {
             await bookingService.notifyPaymentConfirmation(
               booking.id,
               transaction.payment_type,
-              parseFloat(collectionData.amount)
+              parseFloat(webhookEvent.amount)
             );
           }
         }
 
-        logger.info('Webhook processed successfully', {
-          event: webhookEvent.event,
+        logger.info('Deposit webhook processed successfully', {
+          depositId,
           transactionId: transaction.id,
           transactionType: transaction.transaction_type,
         });
-      } else if (webhookEvent.event === 'transfer.successful' || 
-                 webhookEvent.event === 'transfer.completed' ||
-                 webhookEvent.event === 'payout.successful' || 
-                 webhookEvent.event === 'payout.completed') {
-        const transferData = webhookEvent.data;
+      } else if (webhookEvent.depositId && webhookEvent.status === 'FAILED') {
+        const depositId = webhookEvent.depositId;
+        const correspondentIds = webhookEvent.correspondentIds || {};
+        const reference = correspondentIds.MERCHANT_TRANSACTION_REFERENCE;
         
-        logger.info('Processing successful transfer/payout', {
-          event: webhookEvent.event,
-          reference: transferData.reference,
-          amount: transferData.amount,
-        });
-
-        // Handle transfer/payout webhook
-        await withdrawalService.handlePayoutWebhook({
-          reference: transferData.reference,
-          status: 'successful',
-          externalTransactionId: transferData.mobileMoneyDetails?.operatorTransactionId,
-        });
-
-        logger.info('Transfer/payout webhook processed successfully', {
-          reference: transferData.reference,
-        });
-      } else if (webhookEvent.event === 'transfer.failed' || webhookEvent.event === 'payout.failed') {
-        const transferData = webhookEvent.data;
-        
-        logger.warn('Transfer/payout failed webhook received', {
-          reference: transferData.reference,
-          reason: transferData.reasonForFailure,
-        });
-
-        // Handle transfer/payout failure
-        await withdrawalService.handlePayoutWebhook({
-          reference: transferData.reference,
-          status: 'failed',
-          failureReason: transferData.reasonForFailure,
-        });
-      } else if (webhookEvent.event === 'collection.settled' || 
-                 webhookEvent.event === 'transaction.credit') {
-        // Log but don't process these events - only collection.successful creates bookings
-        logger.info('Received webhook event (not processing)', {
-          event: webhookEvent.event,
-          reference: webhookEvent.data?.reference,
-        });
-      } else if (webhookEvent.event === 'collection.failed') {
-        const collectionData = webhookEvent.data;
-        
-        logger.warn('Collection failed webhook received', {
-          reference: collectionData.reference,
-          reason: collectionData.reasonForFailure,
+        logger.warn('Deposit failed webhook received', {
+          depositId,
+          reference,
+          reason: webhookEvent.failureReason,
         });
 
         // Find and update transaction
-        const { transaction } = await transactionService.getTransactionByReference(
-          collectionData.reference
-        );
+        const { transaction } = await transactionService.getTransactionByReference(reference);
 
         if (transaction) {
           await transactionService.updateTransactionStatus(
             transaction.id,
             'failed',
-            collectionData.status,
-            collectionData.reasonForFailure
+            'FAILED',
+            webhookEvent.failureReason?.failureMessage
           );
         }
+      } else if (webhookEvent.payoutId && webhookEvent.status === 'COMPLETED') {
+        const payoutId = webhookEvent.payoutId;
+        const correspondentIds = webhookEvent.correspondentIds || {};
+        const reference = correspondentIds.MERCHANT_TRANSACTION_REFERENCE;
+        
+        logger.info('Processing completed payout', {
+          payoutId,
+          reference,
+          amount: webhookEvent.amount,
+        });
+
+        // Handle payout webhook
+        await withdrawalService.handlePayoutWebhook({
+          reference,
+          status: 'successful',
+          externalTransactionId: payoutId,
+        });
+
+        logger.info('Payout webhook processed successfully', {
+          payoutId,
+          reference,
+        });
+      } else if (webhookEvent.payoutId && webhookEvent.status === 'FAILED') {
+        const payoutId = webhookEvent.payoutId;
+        const correspondentIds = webhookEvent.correspondentIds || {};
+        const reference = correspondentIds.MERCHANT_TRANSACTION_REFERENCE;
+        
+        logger.warn('Payout failed webhook received', {
+          payoutId,
+          reference,
+          reason: webhookEvent.failureReason,
+        });
+
+        // Handle payout failure
+        await withdrawalService.handlePayoutWebhook({
+          reference,
+          status: 'failed',
+          failureReason: webhookEvent.failureReason?.failureMessage,
+        });
+      } else {
+        logger.info('Received webhook with unhandled status', {
+          depositId: webhookEvent.depositId,
+          payoutId: webhookEvent.payoutId,
+          status: webhookEvent.status,
+        });
       }
 
       res.status(200).json({
@@ -486,7 +487,7 @@ export class PaymentController {
     } catch (error: any) {
       logger.error('Webhook processing error', {
         error: error.message,
-        event: req.body.event,
+        webhookData: req.body,
       });
       res.status(500).json({
         success: false,
@@ -529,7 +530,7 @@ export class PaymentController {
         return;
       }
 
-      const result = await lencopayService.initiateRefund(transaction_id, amount, reason);
+      const result = { success: false, message: 'Refunds not yet implemented for PawaPay' };
 
       res.status(result.success ? 200 : 400).json(result);
     } catch (error: any) {
@@ -562,7 +563,7 @@ export class PaymentController {
         return;
       }
 
-      const verification = await lencopayService.verifyPayment(transaction_id);
+      const verification = await pawapayService.checkDepositStatus(transaction_id);
       
       if (!verification.success || verification.status !== 'successful') {
         logger.warn('Payment verification failed for booking creation', {

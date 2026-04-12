@@ -6,11 +6,10 @@ export const config = {
   port: process.env.PORT || 3001,
   nodeEnv: process.env.NODE_ENV || 'development',
   
-  lencopay: {
-    apiKey: process.env.LENCOPAY_API_KEY || '',
-    baseUrl: process.env.LENCOPAY_BASE_URL || 'https://api.lenco.co/access/v2',
-    callbackUrl: process.env.LENCOPAY_CALLBACK_URL || '',
-    accountId: process.env.LENCOPAY_ACCOUNT_ID || '', // Required for transfers
+  pawapay: {
+    apiToken: process.env.PAWAPAY_API_TOKEN || '',
+    baseUrl: process.env.PAWAPAY_BASE_URL || 'https://api.sandbox.pawapay.io',
+    webhookUrl: process.env.PAWAPAY_WEBHOOK_URL || '',
   },
   
   africastalking: {
