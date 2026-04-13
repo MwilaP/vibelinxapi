@@ -646,20 +646,42 @@ class BookingService {
       const platformFee = parseFloat(bookingData.platform_fee) || 0;
       const providerEscrowAmount = commitmentFee - platformFee;
 
-      // Deduct platform fee separately (goes to platform, not escrow)
+      // Deduct platform fee from wallet (non-refundable)
       if (platformFee > 0) {
-        await walletService.recordWalletTransaction({
+        logger.info('Deducting platform fee from client wallet', {
+          walletId: clientWallet.id,
+          platformFee,
+          bookingId: booking.id,
+        });
+
+        const deductResult = await walletService.deductFromWallet({
           wallet_id: clientWallet.id,
-          transaction_type: 'platform_fee',
           amount: platformFee,
-          balance_before: parseFloat(clientWallet.available_balance),
-          balance_after: parseFloat(clientWallet.available_balance) - platformFee,
           reference_id: booking.id,
           reference_type: 'booking',
           description: 'Platform fee for booking',
         });
+
+        if (!deductResult.success) {
+          logger.error('Failed to deduct platform fee, rolling back booking', {
+            error: deductResult.error,
+            bookingId: booking.id,
+          });
+          // Rollback booking if platform fee deduction fails
+          await this.supabase
+            .from('bookings')
+            .delete()
+            .eq('id', booking.id);
+          return { booking: null, error: deductResult.error };
+        }
+
+        logger.info('Platform fee deducted successfully', {
+          walletId: clientWallet.id,
+          platformFee,
+        });
       }
 
+      // Lock commitment fee in escrow (refundable)
       const { escrow, error: escrowError } = await escrowService.createEscrow({
         booking_id: booking.id,
         client_wallet_id: clientWallet.id,
@@ -674,7 +696,19 @@ class BookingService {
       });
 
       if (escrowError) {
-        logger.error('Error creating escrow, rolling back booking', { error: escrowError });
+        logger.error('Error creating escrow, rolling back booking and platform fee', { error: escrowError });
+        
+        // Refund platform fee if escrow creation fails
+        if (platformFee > 0) {
+          await walletService.creditWallet({
+            wallet_id: clientWallet.id,
+            amount: platformFee,
+            transaction_id: booking.id,
+            description: 'Platform fee refund due to booking creation failure',
+          });
+        }
+
+        // Delete booking
         await this.supabase
           .from('bookings')
           .delete()
