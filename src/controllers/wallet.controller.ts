@@ -8,18 +8,27 @@ import { logger } from '../utils/logger';
 export class WalletController {
   async depositFunds(req: Request, res: Response): Promise<void> {
     try {
-      const { user_id, amount, payment_method, customer_phone } = req.body;
+      const { user_id, user_type, amount, payment_method, customer_phone } = req.body;
 
       logger.info('Initiating wallet deposit', {
         userId: user_id,
+        userType: user_type,
         amount,
         paymentMethod: payment_method,
       });
 
-      if (!user_id || !amount || !payment_method || !customer_phone) {
+      if (!user_id || !user_type || !amount || !payment_method || !customer_phone) {
         res.status(400).json({
           success: false,
-          message: 'Missing required fields: user_id, amount, payment_method, customer_phone',
+          message: 'Missing required fields: user_id, user_type, amount, payment_method, customer_phone',
+        });
+        return;
+      }
+
+      if (user_type !== 'client' && user_type !== 'provider') {
+        res.status(400).json({
+          success: false,
+          message: 'user_type must be either "client" or "provider"',
         });
         return;
       }
@@ -32,7 +41,7 @@ export class WalletController {
         return;
       }
 
-      const { wallet, error: walletError } = await walletService.getWalletByUserId(user_id, 'client');
+      const { wallet, error: walletError } = await walletService.getWalletByUserId(user_id, user_type as 'client' | 'provider');
 
       if (walletError) {
         logger.error('Failed to get or create wallet', { error: walletError });
