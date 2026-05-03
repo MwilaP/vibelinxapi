@@ -19,6 +19,7 @@ export type ReferralPayoutStatus =
   | 'requested' 
   | 'processing' 
   | 'completed' 
+  | 'rejected'
   | 'failed';
 
 export interface ReferralEarning {

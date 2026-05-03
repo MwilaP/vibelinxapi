@@ -74,6 +74,7 @@ export interface Booking {
   booking_date: string;
   total_amount: number;
   commitment_fee: number;
+  platform_fee: number;
   balance_due: number;
   status: string;
   payment_type?: string;

@@ -350,7 +350,7 @@ class BookingService {
 
       // 7. Process Referral Earnings
       try {
-        const platformFee = parseFloat(booking.platform_fee || '0');
+        const platformFee = Number(booking.platform_fee || 0);
         if (platformFee > 0) {
           const { referralService } = require('./referral.service');
           
