@@ -40,6 +40,11 @@ export interface PaymentVerificationResponse {
     payoutId?: string;
     pawapayStatus?: string;
     created?: string;
+    lencoReference?: string;
+    completedAt?: string;
+    fee?: string | number;
+    operator?: string;
+    operatorTransactionId?: string;
     failureReason?: {
       failureMessage: string;
       failureCode: string;

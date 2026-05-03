@@ -28,4 +28,9 @@ export const config = {
     allowedOrigins: process.env.ALLOWED_ORIGINS?.split(',') || ['http://localhost:5173'],
   },
   domain: process.env.DOMAIN || 'vibeslinx.com',
+  lencopay: {
+    apiKey: process.env.LENCOPAY_API_KEY || '',
+    baseUrl: process.env.LENCOPAY_BASE_URL || 'https://api.lencopay.com/v1',
+    accountId: process.env.LENCOPAY_ACCOUNT_ID || '',
+  },
 };
