@@ -208,21 +208,50 @@ class ReferralService {
 
   async getDashboardData(userId: string): Promise<ReferralDashboardData | null> {
     try {
-      const { data: profile, error: profileError } = await this.supabase
+      let { data: profile, error: profileError } = await this.supabase
         .from('profiles')
-        .select('referral_code')
+        .select('referral_code, display_name')
         .eq('id', userId)
         .single();
 
       if (profileError || !profile) return null;
 
-      const { data: wallet, error: walletError } = await this.supabase
+      // Ensure user has a referral code
+      if (!profile.referral_code) {
+        const newCode = (
+          (profile.display_name?.substring(0, 3) || 'USR') + 
+          '-' + 
+          userId.substring(0, 4)
+        ).toUpperCase();
+        
+        await this.supabase
+          .from('profiles')
+          .update({ referral_code: newCode })
+          .eq('id', userId);
+        
+        profile.referral_code = newCode;
+      }
+
+      let { data: wallet, error: walletError } = await this.supabase
         .from('referral_wallets')
         .select('*')
         .eq('user_id', userId)
         .single();
 
-      if (walletError || !wallet) return null;
+      if (walletError || !wallet) {
+        // Auto-create wallet for existing users
+        const { data: newWallet, error: createError } = await this.supabase
+          .from('referral_wallets')
+          .insert({ user_id: userId })
+          .select()
+          .single();
+        
+        if (createError) {
+          logger.error('Failed to auto-create referral wallet:', createError);
+          return null;
+        }
+        wallet = newWallet;
+      }
 
       const { data: earnings } = await this.supabase
         .from('referral_earnings')
