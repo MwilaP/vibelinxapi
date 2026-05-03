@@ -171,6 +171,19 @@ export const payVisibilityFee = async (req: Request, res: Response) => {
       });
     }
 
+    // Process Referral Earnings
+    try {
+      const { referralService } = require('../services/referral.service');
+      await referralService.processEvent(
+        'provider_visibility',
+        transaction.id,
+        user_id,
+        visibilityFee
+      );
+    } catch (refError) {
+      console.error('[PROVIDER] Error processing referral earnings:', refError);
+    }
+
     return res.status(200).json({
       success: true,
       message: 'Visibility fee paid successfully',

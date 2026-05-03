@@ -270,6 +270,19 @@ class BookingService {
         return { booking: null, error };
       }
 
+      if (isFull && booking) {
+        try {
+          const platformFee = parseFloat(bookingData.platform_fee || '0');
+          if (platformFee > 0) {
+            const { referralService } = require('./referral.service');
+            await referralService.processEvent('booking_platform_fee', booking.id, bookingData.client_id, platformFee);
+            await referralService.processEvent('booking_platform_fee', booking.id, bookingData.provider_id, platformFee);
+          }
+        } catch (refError) {
+          logger.error('Error processing referral earnings for full payment booking:', refError);
+        }
+      }
+
       return { booking, error: null };
     } catch (error) {
       console.error('Unexpected error creating booking with payment:', error);
@@ -334,6 +347,33 @@ class BookingService {
       }
 
       console.log('  ✅ Accept booking completed successfully');
+
+      // 7. Process Referral Earnings
+      try {
+        const platformFee = parseFloat(booking.platform_fee || '0');
+        if (platformFee > 0) {
+          const { referralService } = require('./referral.service');
+          
+          // Reward client's referrer
+          await referralService.processEvent(
+            'booking_platform_fee',
+            booking.id,
+            booking.client_id,
+            platformFee
+          );
+
+          // Reward provider's referrer
+          await referralService.processEvent(
+            'booking_platform_fee',
+            booking.id,
+            booking.provider_id,
+            platformFee
+          );
+        }
+      } catch (refError) {
+        logger.error('Error processing referral earnings for booking:', refError);
+      }
+
       return { success: true, error: null };
     } catch (error) {
       console.error('  ❌ Unexpected error accepting booking:', error);

@@ -27,4 +27,5 @@ export const config = {
     apiSecretKey: process.env.API_SECRET_KEY || '',
     allowedOrigins: process.env.ALLOWED_ORIGINS?.split(',') || ['http://localhost:5173'],
   },
+  domain: process.env.DOMAIN || 'vibeslinx.com',
 };

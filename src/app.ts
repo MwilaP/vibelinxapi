@@ -13,6 +13,7 @@ import withdrawalRoutes from './routes/withdrawal.routes';
 import payoutMethodRoutes from './routes/payoutMethod.routes';
 import settingsRoutes from './routes/settings.routes';
 import providerRoutes from './routes/provider.routes';
+import referralRoutes from './routes/referral.routes';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler';
 
 const app: Application = express();
@@ -44,6 +45,7 @@ app.use('/api/subscriptions', subscriptionRoutes);
 app.use('/api/withdrawal', withdrawalRoutes);
 app.use('/api/payout-methods', payoutMethodRoutes);
 app.use('/api/providers', providerRoutes);
+app.use('/api/referral', referralRoutes);
 
 app.use(notFoundHandler);
 app.use(errorHandler);

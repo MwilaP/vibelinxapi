@@ -277,6 +277,19 @@ export const purchaseSubscription = async (req: Request, res: Response) => {
       })
       .eq('id', user_id);
 
+    // Process Referral Earnings
+    try {
+      const { referralService } = require('../services/referral.service');
+      await referralService.processEvent(
+        'client_subscription',
+        subscription.id,
+        user_id,
+        planPrice
+      );
+    } catch (refError) {
+      console.error('[SUBSCRIPTION] Error processing referral earnings:', refError);
+    }
+
     // Return success
     console.log('[SUBSCRIPTION] Purchase completed successfully');
     return res.status(200).json({
