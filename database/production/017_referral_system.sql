@@ -10,7 +10,7 @@ BEGIN
   END IF;
 
   IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'profiles' AND column_name = 'referred_by_user_id') THEN
-    ALTER TABLE public.profiles ADD COLUMN referred_by_user_id UUID REFERENCES auth.users(id);
+    ALTER TABLE public.profiles ADD COLUMN referred_by_user_id UUID REFERENCES public.profiles(id);
   END IF;
 
   IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'profiles' AND column_name = 'referral_code_used') THEN
@@ -23,24 +23,32 @@ BEGIN
 END $$;
 
 -- 2. CREATE REFERRAL EARNINGS TABLE
-CREATE TYPE referral_event_type AS ENUM (
-  'client_subscription',
-  'provider_visibility',
-  'booking_platform_fee',
-  'subscription_renewal'
-);
+DO $$ BEGIN
+    CREATE TYPE referral_event_type AS ENUM (
+      'client_subscription',
+      'provider_visibility',
+      'booking_platform_fee',
+      'subscription_renewal'
+    );
+EXCEPTION
+    WHEN duplicate_object THEN null;
+END $$;
 
-CREATE TYPE referral_earning_status AS ENUM (
-  'pending',
-  'confirmed',
-  'missed',
-  'paid_out'
-);
+DO $$ BEGIN
+    CREATE TYPE referral_earning_status AS ENUM (
+      'pending',
+      'confirmed',
+      'missed',
+      'paid_out'
+    );
+EXCEPTION
+    WHEN duplicate_object THEN null;
+END $$;
 
 CREATE TABLE IF NOT EXISTS public.referral_earnings (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  referrer_user_id UUID NOT NULL REFERENCES auth.users(id),
-  referred_user_id UUID NOT NULL REFERENCES auth.users(id),
+  referrer_user_id UUID NOT NULL REFERENCES public.profiles(id),
+  referred_user_id UUID NOT NULL REFERENCES public.profiles(id),
   event_type referral_event_type NOT NULL,
   source_id UUID NOT NULL, -- FK to the triggering record (booking id, subscription id, etc.)
   gross_amount DECIMAL(10,2) NOT NULL,
@@ -55,7 +63,7 @@ CREATE TABLE IF NOT EXISTS public.referral_earnings (
 -- 3. CREATE REFERRAL WALLETS TABLE
 CREATE TABLE IF NOT EXISTS public.referral_wallets (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id UUID NOT NULL REFERENCES auth.users(id) UNIQUE,
+  user_id UUID NOT NULL REFERENCES public.profiles(id) UNIQUE,
   balance DECIMAL(10,2) DEFAULT 0.00,
   total_earned DECIMAL(10,2) DEFAULT 0.00,
   total_paid_out DECIMAL(10,2) DEFAULT 0.00,
@@ -63,40 +71,51 @@ CREATE TABLE IF NOT EXISTS public.referral_wallets (
 );
 
 -- 4. CREATE REFERRAL PAYOUTS TABLE
-CREATE TYPE referral_payout_method AS ENUM (
-  'mobile_money',
-  'bank_transfer',
-  'platform_credit'
-);
+DO $$ BEGIN
+    CREATE TYPE referral_payout_method AS ENUM (
+      'mobile_money',
+      'bank_transfer',
+      'platform_credit'
+    );
+EXCEPTION
+    WHEN duplicate_object THEN null;
+END $$;
 
-CREATE TYPE referral_payout_status AS ENUM (
-  'requested',
-  'processing',
-  'completed',
-  'failed'
-);
+DO $$ BEGIN
+    CREATE TYPE referral_payout_status AS ENUM (
+      'requested',
+      'processing',
+      'completed',
+      'rejected',
+      'failed'
+    );
+EXCEPTION
+    WHEN duplicate_object THEN null;
+END $$;
 
 CREATE TABLE IF NOT EXISTS public.referral_payouts (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id UUID NOT NULL REFERENCES auth.users(id),
+  user_id UUID NOT NULL REFERENCES public.profiles(id),
   amount DECIMAL(10,2) NOT NULL,
   method referral_payout_method NOT NULL,
   status referral_payout_status DEFAULT 'requested',
   reference VARCHAR(100),
-  requested_at TIMESTAMPTZ DEFAULT NOW(),
-  completed_at TIMESTAMPTZ
+  admin_notes TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  processed_at TIMESTAMPTZ,
+  completed_at TIMESTAMPTZ -- Legacy field for completion
 );
 
 -- 5. CREATE REFERRAL FRAUD FLAGS TABLE
 CREATE TABLE IF NOT EXISTS public.referral_fraud_flags (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id UUID NOT NULL REFERENCES auth.users(id),
+  user_id UUID NOT NULL REFERENCES public.profiles(id),
   flag_reason TEXT NOT NULL,
   ip_address VARCHAR(50),
   device_fingerprint VARCHAR(200),
   flagged_at TIMESTAMPTZ DEFAULT NOW(),
   reviewed BOOLEAN DEFAULT FALSE,
-  reviewed_by UUID REFERENCES auth.users(id)
+  reviewed_by UUID REFERENCES public.profiles(id)
 );
 
 -- 6. CREATE INDEXES
@@ -197,9 +216,16 @@ ALTER TABLE public.referral_payouts ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.referral_fraud_flags ENABLE ROW LEVEL SECURITY;
 
 -- 10. RLS POLICIES
+DROP POLICY IF EXISTS "Users can view own referral earnings" ON public.referral_earnings;
 CREATE POLICY "Users can view own referral earnings" ON public.referral_earnings FOR SELECT TO authenticated USING (referrer_user_id = auth.uid());
+
+DROP POLICY IF EXISTS "Users can view own referral wallet" ON public.referral_wallets;
 CREATE POLICY "Users can view own referral wallet" ON public.referral_wallets FOR SELECT TO authenticated USING (user_id = auth.uid());
+
+DROP POLICY IF EXISTS "Users can view own referral payouts" ON public.referral_payouts;
 CREATE POLICY "Users can view own referral payouts" ON public.referral_payouts FOR SELECT TO authenticated USING (user_id = auth.uid());
+
+DROP POLICY IF EXISTS "Admins can view all referral data" ON public.referral_earnings;
 CREATE POLICY "Admins can view all referral data" ON public.referral_earnings TO authenticated USING (EXISTS (SELECT 1 FROM public.admin_users WHERE user_id = auth.uid()));
 
 -- 11. HELPER FUNCTION TO CHECK IF REFERRER IS ACTIVE
@@ -242,3 +268,8 @@ GRANT SELECT ON public.referral_earnings TO authenticated;
 GRANT SELECT ON public.referral_wallets TO authenticated;
 GRANT SELECT ON public.referral_payouts TO authenticated;
 GRANT EXECUTE ON FUNCTION public.is_referrer_active(UUID) TO authenticated;
+
+GRANT ALL ON TABLE public.referral_earnings TO postgres, service_role;
+GRANT ALL ON TABLE public.referral_wallets TO postgres, service_role;
+GRANT ALL ON TABLE public.referral_payouts TO postgres, service_role;
+GRANT ALL ON TABLE public.referral_fraud_flags TO postgres, service_role;
