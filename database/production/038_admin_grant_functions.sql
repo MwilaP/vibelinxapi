@@ -44,7 +44,7 @@ BEGIN
     NOW(),
     v_end_date,
     0,
-    'admin-grant-' || extract(epoch from now())::text,
+    NULL,
     FALSE,
     jsonb_build_object('granted_by', v_admin_id)
   );
@@ -67,10 +67,10 @@ BEGIN
     success
   ) VALUES (
     v_admin_id,
-    'subscription_management',
+    'user_management',
     'grant_subscription',
     'user',
-    p_user_id::text,
+    p_user_id,
     jsonb_build_object('plan_type', p_plan_type),
     TRUE
   );
@@ -116,10 +116,10 @@ BEGIN
     success
   ) VALUES (
     v_admin_id,
-    'provider_management',
+    'user_management',
     'grant_visibility',
     'user',
-    p_user_id::text,
+    p_user_id,
     jsonb_build_object('days', p_days),
     TRUE
   );
@@ -164,10 +164,10 @@ BEGIN
     success
   ) VALUES (
     v_admin_id,
-    'subscription_management',
+    'user_management',
     'remove_subscription',
     'user',
-    p_user_id::text,
+    p_user_id,
     jsonb_build_object('action', 'removal'),
     TRUE
   );
@@ -206,10 +206,10 @@ BEGIN
     success
   ) VALUES (
     v_admin_id,
-    'provider_management',
+    'user_management',
     'remove_visibility',
     'user',
-    p_user_id::text,
+    p_user_id,
     jsonb_build_object('action', 'removal'),
     TRUE
   );
