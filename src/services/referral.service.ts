@@ -1,9 +1,9 @@
 import { createClient } from '@supabase/supabase-js';
 import { config } from '../config';
 import { logger } from '../utils/logger';
-import { 
-  ReferralEventType, 
-  ReferralEarningStatus, 
+import {
+  ReferralEventType,
+  ReferralEarningStatus,
   ReferralPayoutMethod,
   ReferralDashboardData
 } from '../types/referral';
@@ -132,7 +132,7 @@ class ReferralService {
       // 5. If active, credit the wallet
       if (isActive) {
         await this.creditWallet(referrerId, rewardAmount);
-        
+
         // 6. Send notification
         const { data: referrerProfile } = await this.supabase
           .from('profiles')
@@ -143,9 +143,9 @@ class ReferralService {
         if (referrerProfile && referrerProfile.phone) {
           let message = '';
           if (eventType === 'booking_platform_fee') {
-            message = `You earned K${rewardAmount.toFixed(2)} from a booking your referral generated!`;
+            message = `Vibeslinx: You earned K${rewardAmount.toFixed(2)} from a booking your referral generated!`;
           } else {
-            message = `You earned K${rewardAmount.toFixed(2)}! A referral subscribed using your code.`;
+            message = `Vibeslinx: You earned K${rewardAmount.toFixed(2)}! A referral subscribed using your code.`;
           }
           await notificationService.sendCustomMessage(referrerProfile.phone, message);
         }
@@ -159,8 +159,8 @@ class ReferralService {
 
         if (referrerProfile && referrerProfile.phone) {
           await notificationService.sendCustomMessage(
-            referrerProfile.phone, 
-            'Your referral earnings are paused because your subscription expired. Renew now to resume earning!'
+            referrerProfile.phone,
+            'Vibeslinx: Your referral earnings are paused because your subscription expired. Renew now to resume earning!'
           );
         }
       }
@@ -177,7 +177,7 @@ class ReferralService {
       // Use a RPC for transaction-safe update if available, or manual update
       // For now, let's do a select + update (not ideal for high concurrency, but okay for this MVP)
       // Ideally we'd have a 'credit_referral_wallet' RPC.
-      
+
       const { data: wallet, error: walletError } = await this.supabase
         .from('referral_wallets')
         .select('*')
@@ -219,16 +219,16 @@ class ReferralService {
       // Ensure user has a referral code
       if (!profile.referral_code) {
         const newCode = (
-          (profile.display_name?.substring(0, 3) || 'USR') + 
-          '-' + 
+          (profile.display_name?.substring(0, 3) || 'USR') +
+          '-' +
           userId.substring(0, 4)
         ).toUpperCase();
-        
+
         await this.supabase
           .from('profiles')
           .update({ referral_code: newCode })
           .eq('id', userId);
-        
+
         profile.referral_code = newCode;
       }
 
@@ -245,7 +245,7 @@ class ReferralService {
           .insert({ user_id: userId })
           .select()
           .single();
-        
+
         if (createError) {
           logger.error('Failed to auto-create referral wallet:', createError);
           return null;
@@ -356,7 +356,7 @@ class ReferralService {
           balance: parseFloat(wallet.balance),
           total_paid_out: parseFloat(wallet.total_paid_out)
         }).eq('id', wallet.id);
-        
+
         return { success: false, error: 'Failed to create payout request' };
       }
 
