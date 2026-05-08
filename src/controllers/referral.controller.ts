@@ -39,13 +39,13 @@ export const validateReferralCode = async (req: Request, res: Response) => {
 
 export const requestReferralPayout = async (req: Request, res: Response) => {
   try {
-    const { userId, amount, method } = req.body;
+    const { userId, amount, method, paymentPhone, paymentProvider } = req.body;
 
     if (!userId || !amount || !method) {
       return res.status(400).json({ success: false, error: 'userId, amount, and method are required' });
     }
 
-    const result = await referralService.requestPayout(userId, amount, method);
+    const result = await referralService.requestPayout(userId, amount, method, paymentPhone, paymentProvider);
 
     if (!result.success) {
       return res.status(400).json({ success: false, error: result.error });

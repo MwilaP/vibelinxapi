@@ -50,11 +50,23 @@ export interface ReferralPayout {
   id: string;
   user_id: string;
   amount: number;
+  fee_amount: number;
+  net_amount: number;
   method: ReferralPayoutMethod;
+  payment_phone?: string;
+  payment_provider?: string;
   status: ReferralPayoutStatus;
   reference?: string;
   requested_at: string;
   completed_at?: string;
+}
+
+export interface ReferralPayoutRequest {
+  userId: string;
+  amount: number;
+  method: ReferralPayoutMethod;
+  paymentPhone?: string;
+  paymentProvider?: string;
 }
 
 export interface ReferralDashboardData {

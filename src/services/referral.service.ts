@@ -206,6 +206,22 @@ class ReferralService {
     }
   }
 
+  calculatePayoutFee(payoutAmount: number): { fee: number; netPayout: number; walletDebit: number } {
+    // Mimic provider wallet's 3% fee structure
+    // User requests payoutAmount (what they want to receive)
+    // Fee is 3% on top
+    const feePercentage = 0.03;
+    const fee = Math.round(payoutAmount * feePercentage * 100) / 100;
+    const walletDebit = payoutAmount + fee;
+    const netPayout = payoutAmount;
+
+    return {
+      fee,
+      netPayout,
+      walletDebit
+    };
+  }
+
   async getDashboardData(userId: string): Promise<ReferralDashboardData | null> {
     try {
       let { data: profile, error: profileError } = await this.supabase
@@ -302,7 +318,13 @@ class ReferralService {
     }
   }
 
-  async requestPayout(userId: string, amount: number, method: ReferralPayoutMethod): Promise<{ success: boolean; error: string | null }> {
+  async requestPayout(
+    userId: string, 
+    amount: number, 
+    method: ReferralPayoutMethod,
+    paymentPhone?: string,
+    paymentProvider?: string
+  ): Promise<{ success: boolean; error: string | null }> {
     try {
       // 1. Get min payout setting
       const { data: minPayout } = await this.supabase
@@ -312,7 +334,11 @@ class ReferralService {
         return { success: false, error: `Minimum payout amount is K${minPayout || 20}` };
       }
 
-      // 2. Check balance
+      // 2. Calculate fees (3% model like provider wallet)
+      const feeInfo = this.calculatePayoutFee(amount);
+      const totalDeduction = feeInfo.walletDebit;
+
+      // 3. Check balance
       const { data: wallet, error: walletError } = await this.supabase
         .from('referral_wallets')
         .select('*')
@@ -323,16 +349,19 @@ class ReferralService {
         return { success: false, error: 'Wallet not found' };
       }
 
-      if (parseFloat(wallet.balance) < amount) {
-        return { success: false, error: 'Insufficient balance' };
+      if (parseFloat(wallet.balance) < totalDeduction) {
+        return { 
+          success: false, 
+          error: `Insufficient balance. You need K${totalDeduction.toFixed(2)} but have K${parseFloat(wallet.balance).toFixed(2)}` 
+        };
       }
 
-      // 3. Deduct from balance and create payout request
+      // 4. Deduct from balance and create payout request
       const { error: updateError } = await this.supabase
         .from('referral_wallets')
         .update({
-          balance: parseFloat(wallet.balance) - amount,
-          total_paid_out: parseFloat(wallet.total_paid_out) + amount,
+          balance: parseFloat(wallet.balance) - totalDeduction,
+          total_paid_out: parseFloat(wallet.total_paid_out) + totalDeduction,
           last_updated_at: new Date().toISOString()
         })
         .eq('id', wallet.id);
@@ -345,8 +374,12 @@ class ReferralService {
         .from('referral_payouts')
         .insert({
           user_id: userId,
-          amount: amount,
+          amount: amount, // net_payout (what user receives)
+          fee_amount: feeInfo.fee,
+          net_amount: feeInfo.netPayout,
           method: method,
+          payment_phone: paymentPhone,
+          payment_provider: paymentProvider,
           status: 'requested'
         });
 
