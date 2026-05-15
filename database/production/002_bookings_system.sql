@@ -62,6 +62,10 @@ CREATE TABLE IF NOT EXISTS public.bookings (
   provider_notes TEXT,
   cancellation_reason TEXT,
   
+  -- Review Status
+  client_reviewed BOOLEAN DEFAULT FALSE,
+  provider_reviewed BOOLEAN DEFAULT FALSE,
+  
   -- Timestamps
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW(),
@@ -94,6 +98,8 @@ CREATE INDEX IF NOT EXISTS idx_bookings_date ON public.bookings(booking_date);
 CREATE INDEX IF NOT EXISTS idx_bookings_created_at ON public.bookings(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_bookings_commitment_paid ON public.bookings(commitment_paid);
 CREATE INDEX IF NOT EXISTS idx_bookings_balance_paid ON public.bookings(balance_paid);
+CREATE INDEX IF NOT EXISTS idx_bookings_client_reviewed ON public.bookings(client_reviewed);
+CREATE INDEX IF NOT EXISTS idx_bookings_provider_reviewed ON public.bookings(provider_reviewed);
 
 -- Composite index for provider's pending bookings
 CREATE INDEX IF NOT EXISTS idx_bookings_provider_pending ON public.bookings(provider_id, status) 

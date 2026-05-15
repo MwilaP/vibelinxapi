@@ -61,6 +61,35 @@ CREATE TABLE IF NOT EXISTS public.provider_stats (
 );
 
 -- ============================================
+-- 1b. CREATE CLIENT STATS TABLE
+-- ============================================
+
+CREATE TABLE IF NOT EXISTS public.client_stats (
+  client_id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
+  
+  -- Booking Stats
+  total_bookings INTEGER DEFAULT 0,
+  completed_bookings INTEGER DEFAULT 0,
+  
+  -- Performance Metrics
+  average_rating DECIMAL(3, 2) DEFAULT 0,
+  total_reviews INTEGER DEFAULT 0,
+  
+  -- Engagement Stats
+  last_active_at TIMESTAMPTZ,
+  
+  -- Timestamps
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW(),
+  
+  -- Constraints
+  CONSTRAINT valid_stats_client CHECK (
+    total_bookings >= 0 AND
+    completed_bookings >= 0
+  )
+);
+
+-- ============================================
 -- 2. CREATE INDEXES
 -- ============================================
 
@@ -69,12 +98,17 @@ CREATE INDEX IF NOT EXISTS idx_provider_stats_completed ON public.provider_stats
 CREATE INDEX IF NOT EXISTS idx_provider_stats_earned ON public.provider_stats(total_earned DESC);
 CREATE INDEX IF NOT EXISTS idx_provider_stats_active ON public.provider_stats(last_active_at DESC);
 
+-- Client stats indexes
+CREATE INDEX IF NOT EXISTS idx_client_stats_rating ON public.client_stats(average_rating DESC);
+CREATE INDEX IF NOT EXISTS idx_client_stats_completed ON public.client_stats(completed_bookings DESC);
+CREATE INDEX IF NOT EXISTS idx_client_stats_active ON public.client_stats(last_active_at DESC);
+
 -- ============================================
 -- 3. CREATE TRIGGER FUNCTIONS
 -- ============================================
 
--- Initialize stats for new providers
-CREATE OR REPLACE FUNCTION public.initialize_provider_stats()
+-- Initialize stats for new users
+CREATE OR REPLACE FUNCTION public.initialize_user_stats()
 RETURNS TRIGGER 
 SECURITY DEFINER
 SET search_path = public
@@ -84,6 +118,10 @@ BEGIN
     INSERT INTO public.provider_stats (provider_id, last_active_at)
     VALUES (NEW.id, NOW())
     ON CONFLICT (provider_id) DO NOTHING;
+  ELSIF NEW.role = 'client' THEN
+    INSERT INTO public.client_stats (client_id, last_active_at)
+    VALUES (NEW.id, NOW())
+    ON CONFLICT (client_id) DO NOTHING;
   END IF;
   
   RETURN NEW;
@@ -139,6 +177,21 @@ BEGIN
       declined_bookings = CASE WHEN new_status = 'declined' THEN declined_bookings + 1 ELSE declined_bookings END,
       updated_at = NOW()
     WHERE provider_id = NEW.provider_id;
+    
+    -- Update client stats if booking is new or completed
+    IF TG_OP = 'INSERT' THEN
+      INSERT INTO public.client_stats (client_id, total_bookings)
+      VALUES (NEW.client_id, 1)
+      ON CONFLICT (client_id) DO UPDATE SET 
+        total_bookings = client_stats.total_bookings + 1,
+        updated_at = NOW();
+    ELSIF old_status != new_status AND new_status = 'completed' THEN
+      UPDATE public.client_stats
+      SET 
+        completed_bookings = completed_bookings + 1,
+        updated_at = NOW()
+      WHERE client_id = NEW.client_id;
+    END IF;
     
   END IF;
   
@@ -212,6 +265,47 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+-- Recalculate client performance metrics
+CREATE OR REPLACE FUNCTION public.recalculate_client_metrics(p_client_id UUID)
+RETURNS void 
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_total_bookings INTEGER;
+  v_completed_bookings INTEGER;
+  v_avg_rating DECIMAL(3, 2);
+  v_total_reviews INTEGER;
+BEGIN
+  -- Get booking counts
+  SELECT 
+    COUNT(*),
+    COUNT(*) FILTER (WHERE status = 'completed')
+  INTO v_total_bookings, v_completed_bookings
+  FROM public.bookings
+  WHERE client_id = p_client_id;
+  
+  -- Get rating stats
+  SELECT 
+    COALESCE(average_rating, 0),
+    COALESCE(total_reviews, 0)
+  INTO v_avg_rating, v_total_reviews
+  FROM public.client_ratings
+  WHERE client_id = p_client_id;
+  
+  -- Update stats
+  UPDATE public.client_stats
+  SET 
+    total_bookings = v_total_bookings,
+    completed_bookings = v_completed_bookings,
+    average_rating = v_avg_rating,
+    total_reviews = v_total_reviews,
+    updated_at = NOW()
+  WHERE client_id = p_client_id;
+  
+END;
+$$ LANGUAGE plpgsql;
+
 -- Function to increment profile views
 CREATE OR REPLACE FUNCTION public.increment_profile_views(p_provider_id UUID)
 RETURNS void
@@ -235,10 +329,10 @@ $$ LANGUAGE plpgsql;
 -- ============================================
 
 DROP TRIGGER IF EXISTS initialize_provider_stats_on_signup ON public.profiles;
-CREATE TRIGGER initialize_provider_stats_on_signup
+CREATE TRIGGER initialize_user_stats_on_signup
   AFTER INSERT ON public.profiles
   FOR EACH ROW
-  EXECUTE FUNCTION public.initialize_provider_stats();
+  EXECUTE FUNCTION public.initialize_user_stats();
 
 DROP TRIGGER IF EXISTS update_booking_stats_on_change ON public.bookings;
 CREATE TRIGGER update_booking_stats_on_change
@@ -251,6 +345,7 @@ CREATE TRIGGER update_booking_stats_on_change
 -- ============================================
 
 ALTER TABLE public.provider_stats ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.client_stats ENABLE ROW LEVEL SECURITY;
 
 -- ============================================
 -- 6. CREATE RLS POLICIES
@@ -266,6 +361,21 @@ USING (auth.uid() = provider_id);
 
 CREATE POLICY "Service role can manage stats"
 ON public.provider_stats
+TO service_role
+USING (true)
+WITH CHECK (true);
+
+-- Client stats policies
+DROP POLICY IF EXISTS "Clients can view own stats" ON public.client_stats;
+DROP POLICY IF EXISTS "Service role can manage client stats" ON public.client_stats;
+
+CREATE POLICY "Clients can view own stats"
+ON public.client_stats FOR SELECT
+TO authenticated
+USING (auth.uid() = client_id);
+
+CREATE POLICY "Service role can manage client stats"
+ON public.client_stats
 TO service_role
 USING (true)
 WITH CHECK (true);
@@ -302,7 +412,10 @@ GRANT SELECT ON public.provider_leaderboard TO authenticated;
 
 GRANT SELECT ON public.provider_stats TO authenticated;
 GRANT ALL ON public.provider_stats TO service_role;
+GRANT SELECT ON public.client_stats TO authenticated;
+GRANT ALL ON public.client_stats TO service_role;
 GRANT EXECUTE ON FUNCTION public.recalculate_provider_metrics(UUID) TO service_role;
+GRANT EXECUTE ON FUNCTION public.recalculate_client_metrics(UUID) TO service_role;
 GRANT EXECUTE ON FUNCTION public.increment_profile_views(UUID) TO authenticated;
 
 -- ============================================
@@ -313,6 +426,11 @@ GRANT EXECUTE ON FUNCTION public.increment_profile_views(UUID) TO authenticated;
 INSERT INTO public.provider_stats (provider_id, last_active_at)
 SELECT id, NOW() FROM public.profiles WHERE role = 'provider'
 ON CONFLICT (provider_id) DO NOTHING;
+
+-- Create stats records for existing clients
+INSERT INTO public.client_stats (client_id, last_active_at)
+SELECT id, NOW() FROM public.profiles WHERE role = 'client'
+ON CONFLICT (client_id) DO NOTHING;
 
 -- ============================================
 -- PROVIDER STATS & ANALYTICS COMPLETE

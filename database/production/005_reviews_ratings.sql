@@ -70,6 +70,38 @@ CREATE TABLE IF NOT EXISTS public.provider_ratings (
 );
 
 -- ============================================
+-- 2b. CREATE CLIENT RATINGS CACHE TABLE
+-- ============================================
+
+CREATE TABLE IF NOT EXISTS public.client_ratings (
+  client_id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
+  
+  -- Rating Stats
+  average_rating DECIMAL(3, 2) DEFAULT 0 CHECK (average_rating >= 0 AND average_rating <= 5),
+  total_reviews INTEGER DEFAULT 0,
+  
+  -- Rating Distribution
+  five_star_count INTEGER DEFAULT 0,
+  four_star_count INTEGER DEFAULT 0,
+  three_star_count INTEGER DEFAULT 0,
+  two_star_count INTEGER DEFAULT 0,
+  one_star_count INTEGER DEFAULT 0,
+  
+  -- Timestamps
+  last_review_at TIMESTAMPTZ,
+  updated_at TIMESTAMPTZ DEFAULT NOW(),
+  
+  -- Constraints
+  CONSTRAINT valid_counts_client CHECK (
+    five_star_count >= 0 AND
+    four_star_count >= 0 AND
+    three_star_count >= 0 AND
+    two_star_count >= 0 AND
+    one_star_count >= 0
+  )
+);
+
+-- ============================================
 -- 3. CREATE INDEXES
 -- ============================================
 
@@ -85,6 +117,10 @@ CREATE INDEX IF NOT EXISTS idx_reviews_not_hidden ON public.reviews(reviewee_id)
 CREATE INDEX IF NOT EXISTS idx_provider_ratings_avg ON public.provider_ratings(average_rating DESC);
 CREATE INDEX IF NOT EXISTS idx_provider_ratings_total ON public.provider_ratings(total_reviews DESC);
 
+-- Client ratings indexes
+CREATE INDEX IF NOT EXISTS idx_client_ratings_avg ON public.client_ratings(average_rating DESC);
+CREATE INDEX IF NOT EXISTS idx_client_ratings_total ON public.client_ratings(total_reviews DESC);
+
 -- ============================================
 -- 4. CREATE TRIGGER FUNCTIONS
 -- ============================================
@@ -98,21 +134,25 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
--- Function to recalculate provider rating
-CREATE OR REPLACE FUNCTION public.recalculate_provider_rating()
+-- Function to recalculate user rating (handles both providers and clients)
+CREATE OR REPLACE FUNCTION public.recalculate_user_rating()
 RETURNS TRIGGER AS $$
 DECLARE
-  target_provider_id UUID;
+  target_user_id UUID;
+  user_role TEXT;
   avg_rating DECIMAL(3, 2);
   total_count INTEGER;
   star_counts INTEGER[];
 BEGIN
-  -- Determine which provider to update
+  -- Determine which user to update
   IF TG_OP = 'DELETE' THEN
-    target_provider_id := OLD.reviewee_id;
+    target_user_id := OLD.reviewee_id;
   ELSE
-    target_provider_id := NEW.reviewee_id;
+    target_user_id := NEW.reviewee_id;
   END IF;
+
+  -- Get user role
+  SELECT role INTO user_role FROM public.profiles WHERE id = target_user_id;
   
   -- Calculate new average rating and counts
   SELECT 
@@ -127,32 +167,53 @@ BEGIN
     ]
   INTO avg_rating, total_count, star_counts
   FROM public.reviews
-  WHERE reviewee_id = target_provider_id AND is_hidden = FALSE;
+  WHERE reviewee_id = target_user_id AND is_hidden = FALSE;
   
-  -- Ensure provider rating record exists
-  INSERT INTO public.provider_ratings (provider_id)
-  VALUES (target_provider_id)
-  ON CONFLICT (provider_id) DO NOTHING;
-  
-  -- Update provider rating
-  UPDATE public.provider_ratings
-  SET 
-    average_rating = avg_rating,
-    total_reviews = total_count,
-    five_star_count = star_counts[1],
-    four_star_count = star_counts[2],
-    three_star_count = star_counts[3],
-    two_star_count = star_counts[4],
-    one_star_count = star_counts[5],
-    last_review_at = CASE WHEN total_count > 0 THEN NOW() ELSE last_review_at END,
-    updated_at = NOW()
-  WHERE provider_id = target_provider_id;
+  IF user_role = 'provider' THEN
+    -- Ensure provider rating record exists
+    INSERT INTO public.provider_ratings (provider_id)
+    VALUES (target_user_id)
+    ON CONFLICT (provider_id) DO NOTHING;
+    
+    -- Update provider rating
+    UPDATE public.provider_ratings
+    SET 
+      average_rating = avg_rating,
+      total_reviews = total_count,
+      five_star_count = star_counts[1],
+      four_star_count = star_counts[2],
+      three_star_count = star_counts[3],
+      two_star_count = star_counts[4],
+      one_star_count = star_counts[5],
+      last_review_at = CASE WHEN total_count > 0 THEN NOW() ELSE last_review_at END,
+      updated_at = NOW()
+    WHERE provider_id = target_user_id;
+  ELSE
+    -- Ensure client rating record exists
+    INSERT INTO public.client_ratings (client_id)
+    VALUES (target_user_id)
+    ON CONFLICT (client_id) DO NOTHING;
+    
+    -- Update client rating
+    UPDATE public.client_ratings
+    SET 
+      average_rating = avg_rating,
+      total_reviews = total_count,
+      five_star_count = star_counts[1],
+      four_star_count = star_counts[2],
+      three_star_count = star_counts[3],
+      two_star_count = star_counts[4],
+      one_star_count = star_counts[5],
+      last_review_at = CASE WHEN total_count > 0 THEN NOW() ELSE last_review_at END,
+      updated_at = NOW()
+    WHERE client_id = target_user_id;
+  END IF;
   
   RETURN COALESCE(NEW, OLD);
 END;
-$$ LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
 
--- Function to validate review eligibility
+-- Function to validate review eligibility and mark booking as reviewed
 CREATE OR REPLACE FUNCTION public.validate_review_eligibility()
 RETURNS TRIGGER AS $$
 DECLARE
@@ -178,16 +239,24 @@ BEGIN
     RAISE EXCEPTION 'Only booking participants can leave reviews';
   END IF;
   
-  -- Set the reviewee_id based on who the reviewer is
+  -- Set the reviewee_id and update booking review flags
   IF NEW.reviewer_id = booking_record.client_id THEN
     NEW.reviewee_id := booking_record.provider_id;
+    
+    UPDATE public.bookings 
+    SET client_reviewed = TRUE 
+    WHERE id = NEW.booking_id;
   ELSE
     NEW.reviewee_id := booking_record.client_id;
+    
+    UPDATE public.bookings 
+    SET provider_reviewed = TRUE 
+    WHERE id = NEW.booking_id;
   END IF;
   
   RETURN NEW;
 END;
-$$ LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
 
 -- ============================================
 -- 5. CREATE TRIGGERS
@@ -209,20 +278,20 @@ DROP TRIGGER IF EXISTS update_rating_after_review_insert ON public.reviews;
 CREATE TRIGGER update_rating_after_review_insert
   AFTER INSERT ON public.reviews
   FOR EACH ROW
-  EXECUTE FUNCTION public.recalculate_provider_rating();
+  EXECUTE FUNCTION public.recalculate_user_rating();
 
 DROP TRIGGER IF EXISTS update_rating_after_review_update ON public.reviews;
 CREATE TRIGGER update_rating_after_review_update
   AFTER UPDATE ON public.reviews
   FOR EACH ROW
   WHEN (OLD.rating IS DISTINCT FROM NEW.rating OR OLD.is_hidden IS DISTINCT FROM NEW.is_hidden)
-  EXECUTE FUNCTION public.recalculate_provider_rating();
+  EXECUTE FUNCTION public.recalculate_user_rating();
 
 DROP TRIGGER IF EXISTS update_rating_after_review_delete ON public.reviews;
 CREATE TRIGGER update_rating_after_review_delete
   AFTER DELETE ON public.reviews
   FOR EACH ROW
-  EXECUTE FUNCTION public.recalculate_provider_rating();
+  EXECUTE FUNCTION public.recalculate_user_rating();
 
 -- ============================================
 -- 6. ENABLE ROW LEVEL SECURITY
@@ -230,6 +299,7 @@ CREATE TRIGGER update_rating_after_review_delete
 
 ALTER TABLE public.reviews ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.provider_ratings ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.client_ratings ENABLE ROW LEVEL SECURITY;
 
 -- ============================================
 -- 7. CREATE RLS POLICIES
@@ -291,6 +361,21 @@ TO service_role
 USING (true)
 WITH CHECK (true);
 
+-- Client ratings policies
+DROP POLICY IF EXISTS "Anyone can view client ratings" ON public.client_ratings;
+DROP POLICY IF EXISTS "Service role can manage client ratings" ON public.client_ratings;
+
+CREATE POLICY "Anyone can view client ratings"
+ON public.client_ratings FOR SELECT
+TO authenticated
+USING (true);
+
+CREATE POLICY "Service role can manage client ratings"
+ON public.client_ratings
+TO service_role
+USING (true)
+WITH CHECK (true);
+
 -- ============================================
 -- 8. GRANT PERMISSIONS
 -- ============================================
@@ -301,6 +386,9 @@ GRANT ALL ON public.reviews TO service_role;
 GRANT SELECT ON public.provider_ratings TO authenticated;
 GRANT ALL ON public.provider_ratings TO service_role;
 
+GRANT SELECT ON public.client_ratings TO authenticated;
+GRANT ALL ON public.client_ratings TO service_role;
+
 -- ============================================
 -- 9. INITIALIZE PROVIDER RATINGS
 -- ============================================
@@ -309,6 +397,11 @@ GRANT ALL ON public.provider_ratings TO service_role;
 INSERT INTO public.provider_ratings (provider_id)
 SELECT id FROM public.profiles WHERE role = 'provider'
 ON CONFLICT (provider_id) DO NOTHING;
+
+-- Create rating records for existing clients
+INSERT INTO public.client_ratings (client_id)
+SELECT id FROM public.profiles WHERE role = 'client'
+ON CONFLICT (client_id) DO NOTHING;
 
 -- ============================================
 -- REVIEWS & RATINGS SYSTEM COMPLETE
