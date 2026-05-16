@@ -31,6 +31,10 @@ router.post('/cancel-by-provider', (req, res) =>
   bookingController.cancelBookingByProvider(req, res)
 );
 
+router.post('/cancel-by-client', (req, res) => 
+  bookingController.cancelBookingByClient(req, res)
+);
+
 router.get('/:booking_id', (req, res) => 
   bookingController.getBooking(req, res)
 );

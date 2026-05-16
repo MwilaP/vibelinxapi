@@ -604,6 +604,83 @@ class BookingService {
     }
   }
 
+  async cancelBookingByClient(bookingId: string, clientId: string, reason?: string): Promise<{ success: boolean; error: any }> {
+    try {
+      console.log('\n🔵 BookingService.cancelBookingByClient called');
+      console.log('  bookingId:', bookingId);
+      console.log('  clientId:', clientId);
+      console.log('  reason:', reason || 'N/A');
+
+      const booking = await this.getBookingById(bookingId);
+      if (!booking) {
+        console.log('  ❌ Booking not found');
+        return { success: false, error: new Error('Booking not found') };
+      }
+      console.log('  ✅ Booking found:', booking.id, 'status:', booking.status);
+
+      if (booking.client_id !== clientId) {
+        console.log('  ❌ Unauthorized - client mismatch');
+        return { success: false, error: new Error('Unauthorized') };
+      }
+
+      if (!['pending', 'confirmed'].includes(booking.status)) {
+        console.log('  ❌ Invalid status:', booking.status);
+        return { success: false, error: new Error('Booking cannot be cancelled in current status') };
+      }
+
+      console.log('  📝 Updating booking status to cancelled...');
+      const { error } = await this.supabase
+        .from('bookings')
+        .update({ 
+          status: 'cancelled', 
+          cancelled_at: new Date().toISOString(),
+          cancellation_reason: reason || 'Client cancelled booking'
+        })
+        .eq('id', bookingId);
+
+      if (error) {
+        console.error('  ❌ Error updating booking:', error);
+        return { success: false, error };
+      }
+      console.log('  ✅ Booking status updated');
+
+      if (booking.payment_type === 'wallet') {
+        console.log('  💰 Refunding escrow to client...');
+        const escrowResult = await this.refundEscrowForBooking(
+          bookingId, 
+          reason || 'Client cancelled booking'
+        );
+        if (!escrowResult.success) {
+          console.error('  ⚠️ Failed to refund escrow:', escrowResult.error);
+        } else {
+          console.log('  ✅ Escrow refunded to client wallet');
+        }
+      }
+
+      console.log('  📞 Fetching client and provider details...');
+      const client = await this.getClientDetails(booking.client_id);
+      const provider = await this.getProviderDetails(booking.provider_id);
+      console.log('  Client name:', client?.name || 'N/A');
+      console.log('  Provider phone:', provider?.phone || 'N/A');
+
+      if (provider && provider.phone) {
+        console.log('  📱 Sending cancellation notification to provider...');
+        await notificationService.sendBookingStatusUpdate(
+          provider.phone,
+          bookingId,
+          'cancelled',
+          `Booking for ${booking.service_name} has been cancelled by ${client?.name || 'the client'}. ${reason ? 'Reason: ' + reason : ''}`
+        );
+      }
+
+      console.log('  ✅ Cancel booking by client finished successfully');
+      return { success: true, error: null };
+    } catch (error) {
+      console.error('  ❌ Unexpected error cancelling booking by client:', error);
+      return { success: false, error };
+    }
+  }
+
   async createBookingWithWallet(bookingData: any): Promise<{ booking: any | null; error: any }> {
     try {
       logger.info('Creating booking with wallet', {

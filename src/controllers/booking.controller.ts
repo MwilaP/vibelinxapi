@@ -300,6 +300,50 @@ export class BookingController {
     }
   }
 
+  async cancelBookingByClient(req: Request, res: Response): Promise<void> {
+    try {
+      console.log('\n=== CANCEL BOOKING BY CLIENT REQUEST ===');
+      console.log('Request body:', JSON.stringify(req.body, null, 2));
+      
+      const { booking_id, client_id, reason } = req.body;
+
+      if (!booking_id || !client_id) {
+        console.log('❌ Missing required fields');
+        res.status(400).json({
+          success: false,
+          message: 'Booking ID and Client ID are required',
+        });
+        return;
+      }
+
+      console.log('📞 Calling bookingService.cancelBookingByClient...');
+      const result = await bookingService.cancelBookingByClient(booking_id, client_id, reason);
+      console.log('Result:', JSON.stringify(result, null, 2));
+
+      if (!result.success) {
+        console.log('❌ Cancel booking failed:', result.error?.message);
+        res.status(400).json({
+          success: false,
+          message: result.error?.message || 'Failed to cancel booking',
+        });
+        return;
+      }
+
+      console.log('✅ Booking cancelled successfully by client');
+      res.status(200).json({
+        success: true,
+        message: 'Booking cancelled successfully. Provider has been notified.',
+      });
+    } catch (error: any) {
+      console.error('❌ Cancel booking by client error:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Internal server error',
+        error: error.message,
+      });
+    }
+  }
+
   async createBookingWithWallet(req: Request, res: Response): Promise<void> {
     try {
       console.log('\n=== CREATE BOOKING WITH WALLET ===');
