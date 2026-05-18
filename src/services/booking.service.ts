@@ -644,16 +644,27 @@ class BookingService {
       }
       console.log('  ✅ Booking status updated');
 
+      const originalStatus = booking.status;
       if (booking.payment_type === 'wallet') {
-        console.log('  💰 Refunding escrow to client...');
-        const escrowResult = await this.refundEscrowForBooking(
-          bookingId, 
-          reason || 'Client cancelled booking'
-        );
-        if (!escrowResult.success) {
-          console.error('  ⚠️ Failed to refund escrow:', escrowResult.error);
+        if (originalStatus === 'confirmed') {
+          console.log('  💰 Releasing escrow to provider as penalty...');
+          const escrowResult = await this.releaseEscrowForBooking(bookingId);
+          if (!escrowResult.success) {
+            console.error('  ⚠️ Failed to release escrow to provider:', escrowResult.error);
+          } else {
+            console.log('  ✅ Escrow released to provider as cancellation penalty');
+          }
         } else {
-          console.log('  ✅ Escrow refunded to client wallet');
+          console.log('  💰 Refunding escrow to client...');
+          const escrowResult = await this.refundEscrowForBooking(
+            bookingId, 
+            reason || 'Client cancelled booking'
+          );
+          if (!escrowResult.success) {
+            console.error('  ⚠️ Failed to refund escrow:', escrowResult.error);
+          } else {
+            console.log('  ✅ Escrow refunded to client wallet');
+          }
         }
       }
 
@@ -665,11 +676,27 @@ class BookingService {
 
       if (provider && provider.phone) {
         console.log('  📱 Sending cancellation notification to provider...');
+        let message = `Booking for ${booking.service_name} has been cancelled by ${client?.name || 'the client'}. ${reason ? 'Reason: ' + reason : ''}`;
+        
+        if (originalStatus === 'confirmed') {
+          message += ` Since the booking was already accepted, the commitment fee has been released to your wallet.`;
+        }
+
         await notificationService.sendBookingStatusUpdate(
           provider.phone,
           bookingId,
           'cancelled',
-          `Booking for ${booking.service_name} has been cancelled by ${client?.name || 'the client'}. ${reason ? 'Reason: ' + reason : ''}`
+          message
+        );
+      }
+
+      if (client && client.phone && originalStatus === 'confirmed') {
+        console.log('  📱 Sending penalty notification to client...');
+        await notificationService.sendBookingStatusUpdate(
+          client.phone,
+          bookingId,
+          'cancelled',
+          `Your booking for ${booking.service_name} has been cancelled. Since it was already accepted by the provider, the commitment fee is non-refundable and has been paid to the provider.`
         );
       }
 
