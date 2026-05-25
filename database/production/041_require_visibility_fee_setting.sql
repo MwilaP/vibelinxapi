@@ -14,31 +14,18 @@ VALUES
   )
 ON CONFLICT (setting_key) DO NOTHING;
 
--- 2. Create trigger function for automatic visibility activation if fee not required
+-- 2. Create trigger function for automatic visibility activation (gives 30 days free visibility upon onboarding completion)
 CREATE OR REPLACE FUNCTION public.handle_provider_onboarding_visibility()
 RETURNS TRIGGER 
 SECURITY DEFINER
 SET search_path = public
 AS $$
-DECLARE
-  v_require_fee BOOLEAN;
 BEGIN
   -- Check if user is a provider and onboarding completed is being set to true
   IF NEW.role = 'provider' AND NEW.onboarding_completed = TRUE AND (OLD.onboarding_completed = FALSE OR OLD.onboarding_completed IS NULL) THEN
-    -- Fetch require_visibility_fee setting
-    SELECT (setting_value)::text::boolean INTO v_require_fee
-    FROM public.system_settings
-    WHERE setting_key = 'require_visibility_fee';
-    
-    -- If fee is not required, automatically activate visibility
-    IF COALESCE(v_require_fee, TRUE) = FALSE THEN
-      NEW.visibility_status := 'active';
-    ELSE
-      -- Otherwise, default to pending if not set
-      IF NEW.visibility_status IS NULL THEN
-        NEW.visibility_status := 'pending';
-      END IF;
-    END IF;
+    -- Grant free visibility for 30 days
+    NEW.visibility_status := 'active';
+    NEW.visibility_expires_at := NOW() + INTERVAL '30 days';
   END IF;
   
   RETURN NEW;
@@ -92,7 +79,10 @@ BEGIN
   WHERE 
     p.role = 'provider' 
     AND p.onboarding_completed = TRUE
-    AND (p.visibility_status = 'active' OR NOT COALESCE((public.get_setting_value('require_visibility_fee'))::text::boolean, TRUE))
+    AND (
+      (p.visibility_status = 'active' AND (p.visibility_expires_at IS NULL OR p.visibility_expires_at > NOW()))
+      OR NOT COALESCE((public.get_setting_value('require_visibility_fee'))::text::boolean, TRUE)
+    )
     AND (search_query IS NULL OR p.search_vector @@ plainto_tsquery('english', search_query))
     AND (search_city IS NULL OR LOWER(p.city) = LOWER(search_city))
     AND (min_rating IS NULL OR COALESCE(pr.average_rating, 0) >= min_rating)
@@ -134,7 +124,10 @@ BEGIN
   WHERE 
     p.role = 'provider' 
     AND p.onboarding_completed = TRUE
-    AND (p.visibility_status = 'active' OR NOT COALESCE((public.get_setting_value('require_visibility_fee'))::text::boolean, TRUE))
+    AND (
+      (p.visibility_status = 'active' AND (p.visibility_expires_at IS NULL OR p.visibility_expires_at > NOW()))
+      OR NOT COALESCE((public.get_setting_value('require_visibility_fee'))::text::boolean, TRUE)
+    )
     AND EXISTS (
       SELECT 1 FROM jsonb_array_elements(
         CASE 
@@ -176,7 +169,10 @@ BEGIN
   WHERE 
     p.role = 'provider' 
     AND p.onboarding_completed = TRUE
-    AND (p.visibility_status = 'active' OR NOT COALESCE((public.get_setting_value('require_visibility_fee'))::text::boolean, TRUE))
+    AND (
+      (p.visibility_status = 'active' AND (p.visibility_expires_at IS NULL OR p.visibility_expires_at > NOW()))
+      OR NOT COALESCE((public.get_setting_value('require_visibility_fee'))::text::boolean, TRUE)
+    )
     AND LOWER(p.city) = LOWER(user_city)
   ORDER BY pr.average_rating DESC NULLS LAST
   LIMIT limit_count;
@@ -205,7 +201,10 @@ BEGIN
   LEFT JOIN public.bookings b ON b.provider_id = p.id
   WHERE p.role = 'provider' 
     AND p.onboarding_completed = TRUE
-    AND (p.visibility_status = 'active' OR NOT COALESCE((public.get_setting_value('require_visibility_fee'))::text::boolean, TRUE))
+    AND (
+      (p.visibility_status = 'active' AND (p.visibility_expires_at IS NULL OR p.visibility_expires_at > NOW()))
+      OR NOT COALESCE((public.get_setting_value('require_visibility_fee'))::text::boolean, TRUE)
+    )
   GROUP BY p.id, p.display_name, p.city, p.bio, p.photos, p.services, pr.average_rating, pr.total_reviews
   ORDER BY pr.average_rating DESC NULLS LAST, pr.total_reviews DESC;
 

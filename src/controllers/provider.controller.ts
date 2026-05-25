@@ -69,6 +69,22 @@ export const payVisibilityFee = async (req: Request, res: Response) => {
       });
     }
 
+    // 2.1 Check if visibility fee is required
+    const { data: requireFeeData, error: requireFeeError } = await supabase
+      .rpc('get_setting_value', { p_setting_key: 'require_visibility_fee' });
+
+    if (requireFeeError) {
+      console.error('[PROVIDER] Error fetching require_visibility_fee setting:', requireFeeError);
+    } else if (requireFeeData !== null) {
+      const requireFee = requireFeeData === true || requireFeeData === 'true';
+      if (!requireFee) {
+        return res.status(400).json({
+          success: false,
+          error: 'Visibility fee is currently not required',
+        });
+      }
+    }
+
     // 3. Get provider wallet
     let { data: wallet, error: walletError } = await supabase
       .from('wallets')
