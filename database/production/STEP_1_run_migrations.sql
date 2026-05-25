@@ -114,6 +114,10 @@
 \i 041_require_visibility_fee_setting.sql
 \echo '[23/23] DONE'
 
+\echo '[24/24] Add Neighbourhood to Profiles...'
+\i 042_add_neighbourhood_to_profiles.sql
+\echo '[24/24] DONE'
+
 -- ============================================================
 -- Final permission grants (consolidated from fix scripts)
 -- ============================================================
