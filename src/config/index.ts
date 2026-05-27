@@ -25,7 +25,16 @@ export const config = {
   
   security: {
     apiSecretKey: process.env.API_SECRET_KEY || '',
-    allowedOrigins: process.env.ALLOWED_ORIGINS?.split(',') || ['http://localhost:5173'],
+    allowedOrigins: (() => {
+      const origins = process.env.ALLOWED_ORIGINS?.split(',') || ['http://localhost:5173'];
+      const devOrigins = ['http://localhost:3000', 'http://localhost:3002', 'http://localhost:5173', 'http://localhost:5174'];
+      devOrigins.forEach(origin => {
+        if (!origins.includes(origin)) {
+          origins.push(origin);
+        }
+      });
+      return origins;
+    })(),
   },
   domain: process.env.DOMAIN || 'vibeslinx.com',
   lencopay: {
