@@ -9,6 +9,7 @@ import {
 } from '../types/referral';
 import { notificationService } from './notification.service';
 import { pawapayService } from './pawapay.service';
+import { encodeReferralCode, decodeReferralCode } from '../utils/referralCode';
 
 class ReferralService {
   private supabase;
@@ -30,10 +31,13 @@ class ReferralService {
 
   async validateCode(code: string, requestingUserId?: string): Promise<{ referrerId: string | null; error: string | null }> {
     try {
+      // Decode the code first (fallback is safe if it's already a raw code)
+      const decodedCode = decodeReferralCode(code);
+
       const { data: profile, error } = await this.supabase
         .from('profiles')
         .select('id')
-        .eq('referral_code', code.toUpperCase())
+        .eq('referral_code', decodedCode.toUpperCase())
         .single();
 
       if (error || !profile) {
@@ -343,7 +347,7 @@ class ReferralService {
 
       return {
         referralCode: profile.referral_code,
-        referralLink: `https://${config.domain}/ref/${profile.referral_code}`,
+        referralLink: `https://${config.domain}/ref/${encodeReferralCode(profile.referral_code)}`,
         wallet: {
           balance: parseFloat(wallet.balance),
           totalEarned: parseFloat(wallet.total_earned),
