@@ -31,4 +31,13 @@ router.post('/wallet/adjust', (req: Request, res: Response) =>
   adminController.adjustWalletBalance(req, res)
 );
 
+// Marketing Manager admin routes
+router.get('/marketing-managers', (req: Request, res: Response) =>
+  adminController.getAllMarketingManagers(req, res)
+);
+
+router.get('/marketing-managers/:userId', (req: Request, res: Response) =>
+  adminController.getMarketingManagerDetail(req, res)
+);
+
 export default router;

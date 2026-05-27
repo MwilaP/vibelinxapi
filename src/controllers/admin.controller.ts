@@ -1,7 +1,10 @@
 import { Request, Response } from 'express';
 import { escrowService } from '../services/escrow.service';
 import { walletService } from '../services/wallet.service';
+import { createClient } from '@supabase/supabase-js';
+import { config } from '../config';
 import { logger } from '../utils/logger';
+
 
 export class AdminController {
   async getAllEscrows(req: Request, res: Response): Promise<void> {
@@ -309,6 +312,79 @@ export class AdminController {
         message: 'Internal server error',
         error: error.message,
       });
+    }
+  }
+
+  async getAllMarketingManagers(req: Request, res: Response): Promise<void> {
+    try {
+      const supabase = createClient(config.supabase.url, config.supabase.serviceKey, {
+        auth: { autoRefreshToken: false, persistSession: false },
+      });
+
+      const { data: managers, error } = await supabase
+        .from('admin_marketing_managers_view')
+        .select('*');
+
+      if (error) {
+        logger.error('Error fetching marketing managers:', error);
+        res.status(500).json({ success: false, message: 'Failed to fetch marketing managers' });
+        return;
+      }
+
+      // Summary stats
+      const summary = {
+        totalManagers: managers?.length || 0,
+        totalCommissionPaid: managers?.reduce((s, m) => s + parseFloat(m.total_payout_amount || 0), 0) || 0,
+        totalPendingPayouts: managers?.reduce((s, m) => s + (m.pending_payouts || 0), 0) || 0,
+        totalEarned: managers?.reduce((s, m) => s + parseFloat(m.total_earned || 0), 0) || 0,
+      };
+
+      res.status(200).json({ success: true, data: { managers, summary } });
+    } catch (error: any) {
+      logger.error('getAllMarketingManagers error', { error: error.message });
+      res.status(500).json({ success: false, message: 'Internal server error' });
+    }
+  }
+
+  async getMarketingManagerDetail(req: Request, res: Response): Promise<void> {
+    try {
+      const { userId } = req.params;
+      const supabase = createClient(config.supabase.url, config.supabase.serviceKey, {
+        auth: { autoRefreshToken: false, persistSession: false },
+      });
+
+      const { data: manager, error: managerError } = await supabase
+        .from('admin_marketing_managers_view')
+        .select('*')
+        .eq('user_id', userId)
+        .single();
+
+      if (managerError || !manager) {
+        res.status(404).json({ success: false, message: 'Marketing manager not found' });
+        return;
+      }
+
+      const { data: recentEarnings } = await supabase
+        .from('referral_earnings')
+        .select('*')
+        .eq('referrer_user_id', userId)
+        .order('created_at', { ascending: false })
+        .limit(20);
+
+      const { data: recentPayouts } = await supabase
+        .from('referral_payouts')
+        .select('*')
+        .eq('user_id', userId)
+        .order('requested_at', { ascending: false })
+        .limit(20);
+
+      res.status(200).json({
+        success: true,
+        data: { manager, recentEarnings: recentEarnings || [], recentPayouts: recentPayouts || [] },
+      });
+    } catch (error: any) {
+      logger.error('getMarketingManagerDetail error', { error: error.message });
+      res.status(500).json({ success: false, message: 'Internal server error' });
     }
   }
 }

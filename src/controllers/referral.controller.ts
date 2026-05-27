@@ -57,3 +57,85 @@ export const requestReferralPayout = async (req: Request, res: Response) => {
     return res.status(500).json({ success: false, error: 'Internal server error' });
   }
 };
+
+// --- Marketing Manager Controllers ---
+
+export const registerMarketingManager = async (req: Request, res: Response) => {
+  try {
+    const { fullName, phone, password } = req.body;
+
+    if (!fullName || !phone || !password) {
+      return res.status(400).json({ success: false, error: 'fullName, phone, and password are required' });
+    }
+
+    if (password.length < 6) {
+      return res.status(400).json({ success: false, error: 'Password must be at least 6 characters' });
+    }
+
+    const result = await referralService.registerManager(fullName, phone, password);
+
+    if (!result.success) {
+      return res.status(400).json({ success: false, error: result.error });
+    }
+
+    return res.status(201).json({
+      success: true,
+      message: 'Marketing manager registered successfully',
+      data: { userId: result.userId, referralCode: result.referralCode },
+    });
+  } catch (error) {
+    logger.error('Error in registerMarketingManager controller:', error);
+    return res.status(500).json({ success: false, error: 'Internal server error' });
+  }
+};
+
+export const loginMarketingManager = async (req: Request, res: Response) => {
+  try {
+    const { phone, password } = req.body;
+
+    if (!phone || !password) {
+      return res.status(400).json({ success: false, error: 'phone and password are required' });
+    }
+
+    const result = await referralService.loginManager(phone, password);
+
+    if (!result.success) {
+      return res.status(401).json({ success: false, error: result.error });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: 'Login successful',
+      data: { session: result.session },
+    });
+  } catch (error) {
+    logger.error('Error in loginMarketingManager controller:', error);
+    return res.status(500).json({ success: false, error: 'Internal server error' });
+  }
+};
+
+export const getWithdrawalHistory = async (req: Request, res: Response) => {
+  try {
+    const userId = req.query.userId as string;
+    const limit = parseInt(req.query.limit as string) || 20;
+    const offset = parseInt(req.query.offset as string) || 0;
+
+    if (!userId) {
+      return res.status(400).json({ success: false, error: 'userId is required' });
+    }
+
+    const result = await referralService.getWithdrawalHistory(userId, limit, offset);
+
+    if (!result.success) {
+      return res.status(500).json({ success: false, error: result.error });
+    }
+
+    return res.status(200).json({
+      success: true,
+      data: { payouts: result.payouts, total: result.total },
+    });
+  } catch (error) {
+    logger.error('Error in getWithdrawalHistory controller:', error);
+    return res.status(500).json({ success: false, error: 'Internal server error' });
+  }
+};
