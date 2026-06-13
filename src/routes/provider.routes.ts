@@ -9,5 +9,6 @@ const router = Router();
  * @access Private
  */
 router.post('/pay-visibility', providerController.payVisibilityFee);
+router.post('/generate-share-image', providerController.generateShareImage);
 
 export default router;
