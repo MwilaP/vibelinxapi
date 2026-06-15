@@ -55,6 +55,36 @@ class ReferralService {
     }
   }
 
+  // --- Conversion Logic ---
+
+  async processConversion(data: { userId: string; subscriptionId: string }): Promise<void> {
+    try {
+      logger.info('Processing referral conversion for subscription', data);
+
+      const { data: subscription, error } = await this.supabase
+        .from('subscriptions')
+        .select('amount_paid')
+        .eq('id', data.subscriptionId)
+        .single();
+
+      if (error || !subscription) {
+        logger.error('Failed to fetch subscription for referral conversion:', error);
+        return;
+      }
+
+      const amount = parseFloat(subscription.amount_paid);
+
+      await this.processEvent(
+        'client_subscription',
+        data.subscriptionId,
+        data.userId,
+        amount
+      );
+    } catch (err) {
+      logger.error('Unexpected error in processConversion:', err);
+    }
+  }
+
   // --- Earning Logic ---
 
   async processEvent(
