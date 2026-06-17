@@ -313,6 +313,39 @@ class BookingService {
         return { success: false, error: new Error('Booking cannot be accepted in current status') };
       }
 
+      // Check if require_visibility_fee setting is true
+      const { data: requireFeeData, error: requireFeeError } = await this.supabase
+        .rpc('get_setting_value', { p_setting_key: 'require_visibility_fee' });
+
+      let requireFee = true;
+      if (requireFeeError) {
+        console.error('Error fetching require_visibility_fee setting:', requireFeeError);
+      } else if (requireFeeData !== null) {
+        requireFee = requireFeeData === true || requireFeeData === 'true';
+      }
+
+      if (requireFee) {
+        // Fetch provider profile visibility status
+        const { data: providerProfile, error: profileError } = await this.supabase
+          .from('profiles')
+          .select('visibility_status, visibility_expires_at')
+          .eq('id', providerId)
+          .single();
+
+        if (profileError || !providerProfile) {
+          console.error('Error fetching provider profile for visibility check:', profileError);
+          return { success: false, error: new Error('Failed to verify provider profile') };
+        }
+
+        const isVisibilityActive = providerProfile.visibility_status === 'active' && 
+          (providerProfile.visibility_expires_at === null || new Date(providerProfile.visibility_expires_at) > new Date());
+
+        if (!isVisibilityActive) {
+          console.log('  ❌ Booking accept rejected: provider visibility is not active');
+          return { success: false, error: new Error('You must pay for profile visibility to accept bookings') };
+        }
+      }
+
       console.log('  📝 Updating booking status to confirmed...');
       const { error } = await this.supabase
         .from('bookings')
