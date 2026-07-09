@@ -328,7 +328,7 @@ class BookingService {
         // Fetch provider profile visibility status
         const { data: providerProfile, error: profileError } = await this.supabase
           .from('profiles')
-          .select('visibility_status, visibility_expires_at')
+          .select('visibility_status, visibility_expires_at, created_at')
           .eq('id', providerId)
           .single();
 
@@ -337,8 +337,11 @@ class BookingService {
           return { success: false, error: new Error('Failed to verify provider profile') };
         }
 
-        const isVisibilityActive = providerProfile.visibility_status === 'active' && 
-          (providerProfile.visibility_expires_at === null || new Date(providerProfile.visibility_expires_at) > new Date());
+        const isNewProvider = providerProfile.created_at && 
+          (new Date().getTime() - new Date(providerProfile.created_at).getTime() < 30 * 24 * 60 * 60 * 1000);
+
+        const isVisibilityActive = isNewProvider || (providerProfile.visibility_status === 'active' && 
+          (providerProfile.visibility_expires_at === null || new Date(providerProfile.visibility_expires_at) > new Date()));
 
         if (!isVisibilityActive) {
           console.log('  ❌ Booking accept rejected: provider visibility is not active');

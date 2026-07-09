@@ -118,6 +118,10 @@
 \i 042_add_neighbourhood_to_profiles.sql
 \echo '[24/24] DONE'
 
+\echo '[25/25] Exempt New Providers Visibility...'
+\i 045_exempt_new_providers_visibility.sql
+\echo '[25/25] DONE'
+
 -- ============================================================
 -- Final permission grants (consolidated from fix scripts)
 -- ============================================================
